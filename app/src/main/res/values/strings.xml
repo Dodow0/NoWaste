@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NoWaste</string>
+    <string name="expiry_reminder_channel_name">Food expiry reminders</string>
+    <string name="expiry_reminder_channel_description">Local reminders for food expiring soon or already expired.</string>
+    <string name="notification_title_tomorrow">Expires tomorrow</string>
+    <string name="notification_title_near_expiry">Expires in %1$d days</string>
+    <string name="notification_title_today">Expires today</string>
+    <string name="notification_title_expired_yesterday">Expired yesterday</string>
+    <string name="notification_body">%1$s expiry date: %2$s</string>
+</resources>
