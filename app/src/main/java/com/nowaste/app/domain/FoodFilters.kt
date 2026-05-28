@@ -11,7 +11,6 @@ fun filterFoodItems(
     return items.filter { item ->
         val matchesQuery = normalizedQuery.isBlank() ||
             item.name.lowercase().contains(normalizedQuery) ||
-            item.barcodeValue.lowercase().contains(normalizedQuery) ||
             item.note.lowercase().contains(normalizedQuery)
         val matchesCategory = selectedCategory == null || item.categoryTag == selectedCategory
         matchesQuery && matchesCategory

@@ -1,16 +1,9 @@
 package com.nowaste.app.domain
 
 val DefaultFoodCategories = listOf(
-    "蔬菜",
-    "水果",
-    "肉类",
+    "果蔬",
     "乳制品",
-    "主食",
     "零食",
-    "饮料",
-    "熟食",
-    "调味品",
-    "其他",
 )
 
 fun normalizeCategory(rawCategory: String?): String? {
@@ -19,8 +12,7 @@ fun normalizeCategory(rawCategory: String?): String? {
 
     val lower = raw.lowercase()
     return when {
-        listOf("vegetable", "vegetables", "蔬菜").any(lower::contains) -> "蔬菜"
-        listOf("fruit", "fruits", "水果").any(lower::contains) -> "水果"
+        listOf("vegetable", "vegetables", "fruit", "fruits", "蔬菜", "水果", "果蔬").any(lower::contains) -> "果蔬"
         listOf("meat", "pork", "beef", "chicken", "fish", "seafood", "肉").any(lower::contains) -> "肉类"
         listOf("dairy", "dair", "milk", "cheese", "yogurt", "乳", "奶").any(lower::contains) -> "乳制品"
         listOf("cereal", "rice", "noodle", "bread", "pasta", "主食", "谷物").any(lower::contains) -> "主食"

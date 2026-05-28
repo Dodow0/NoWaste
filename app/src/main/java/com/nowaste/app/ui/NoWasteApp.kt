@@ -19,7 +19,9 @@ private object Routes {
     const val FoodList = "foods"
     const val AddFood = "foods/new"
     const val EditFood = "foods/{itemId}"
-    const val BarcodeScanner = "scanner/barcode"
+    const val BatchPhotoCapture = "photos/batch"
+    const val BatchSmartParse = "smart/batch"
+    const val TextPicker = "text-picker"
     const val Settings = "settings"
 
     fun editFood(itemId: Long): String = "foods/$itemId"
@@ -29,7 +31,6 @@ private object Routes {
 fun NoWasteApp(viewModel: FoodViewModel) {
     val navController = rememberNavController()
     val uiState by viewModel.foodListUiState.collectAsStateWithLifecycle()
-    val productLookupUiState by viewModel.productLookupUiState.collectAsStateWithLifecycle()
 
     NavHost(
         navController = navController,
@@ -63,24 +64,20 @@ fun NoWasteApp(viewModel: FoodViewModel) {
             FoodListScreen(
                 uiState = uiState,
                 onAddClick = { navController.navigate(Routes.AddFood) },
+                onBatchSmartAddClick = { navController.navigate(Routes.BatchSmartParse) },
+                onBatchPhotoAddClick = { navController.navigate(Routes.BatchPhotoCapture) },
                 onSettingsClick = { navController.navigate(Routes.Settings) },
                 onFoodClick = { item -> navController.navigate(Routes.editFood(item.id)) },
                 onDeleteFood = { item -> viewModel.deleteFoodItem(item.id) {} },
-                onConsumeFood = { item -> viewModel.deleteFoodItem(item.id) {} },
-                onAddCategoryTag = viewModel::addCategoryTag,
-                onDeleteCategoryTag = viewModel::deleteCategoryTag,
             )
         }
         composable(Routes.AddFood) { entry ->
-            val categoryTags = (uiState as? FoodListUiState.Ready)?.settings?.categoryTags.orEmpty()
+            val settings = (uiState as? FoodListUiState.Ready)?.settings
             FoodFormScreen(
                 item = null,
                 onNavigateBack = { navController.popBackStack() },
-                onScanBarcode = { navController.navigate(Routes.BarcodeScanner) },
-                categoryTags = categoryTags,
-                productLookupUiState = productLookupUiState,
-                onLookupProduct = viewModel::lookupProduct,
-                onClearProductLookupState = viewModel::clearProductLookupState,
+                onPickNameFromPhoto = { navController.navigate(Routes.TextPicker) },
+                categoryTags = settings?.categoryTags.orEmpty(),
                 onSave = { input ->
                     viewModel.saveFoodItem(
                         id = null,
@@ -95,12 +92,11 @@ fun NoWasteApp(viewModel: FoodViewModel) {
         composable(
             route = Routes.EditFood,
             arguments = listOf(navArgument("itemId") { type = NavType.LongType }),
-        ) { entry ->
-            val itemId = entry.arguments?.getLong("itemId") ?: return@composable
+        ) { backStackEntry ->
+            val itemId = backStackEntry.arguments?.getLong("itemId") ?: return@composable
             FoodEditRoute(
                 itemId = itemId,
                 uiState = uiState,
-                productLookupUiState = productLookupUiState,
                 onNavigateBack = { navController.popBackStack() },
                 onSave = { input ->
                     viewModel.saveFoodItem(
@@ -115,19 +111,58 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                         onDeleted = { navController.popBackStack() },
                     )
                 },
-                onScanBarcode = { navController.navigate(Routes.BarcodeScanner) },
-                onLookupProduct = viewModel::lookupProduct,
-                onClearProductLookupState = viewModel::clearProductLookupState,
-                navBackStackEntry = entry,
+                onPickNameFromPhoto = { navController.navigate(Routes.TextPicker) },
+                navBackStackEntry = backStackEntry,
             )
         }
-        composable(Routes.BarcodeScanner) {
-            BarcodeScannerScreen(
+        composable(Routes.BatchSmartParse) {
+            val currentState = uiState
+            if (currentState is FoodListUiState.Ready) {
+                BatchSmartParseScreen(
+                    smartParsingEnabled = currentState.settings.smartParsingEnabled,
+                    categoryTags = currentState.settings.categoryTags,
+                    onNavigateBack = { navController.popBackStack() },
+                    onOpenSettings = { navController.navigate(Routes.Settings) },
+                    onParseText = viewModel::parseSmartFoodBatchText,
+                    onSaveFoods = { inputs ->
+                        viewModel.saveFoodItems(
+                            inputs = inputs,
+                            onSaved = {
+                                navController.popBackStack(
+                                    route = Routes.FoodList,
+                                    inclusive = false,
+                                )
+                            },
+                        )
+                    },
+                )
+            } else {
+                LoadingScreen()
+            }
+        }
+        composable(Routes.BatchPhotoCapture) {
+            BatchPhotoCaptureScreen(
                 onNavigateBack = { navController.popBackStack() },
-                onBarcodeDetected = { barcode ->
+                onFinished = { photoUris ->
+                    viewModel.addFoodsFromPhotos(
+                        photoUris = photoUris,
+                        onAdded = {
+                            navController.popBackStack(
+                                route = Routes.FoodList,
+                                inclusive = false,
+                            )
+                        },
+                    )
+                },
+            )
+        }
+        composable(Routes.TextPicker) {
+            TextPickerCameraScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onTextSelected = { text ->
                     navController.previousBackStackEntry
                         ?.savedStateHandle
-                        ?.set("scannedBarcode", barcode)
+                        ?.set("selectedFoodName", text)
                     navController.popBackStack()
                 },
             )
@@ -140,6 +175,14 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                     onNavigateBack = { navController.popBackStack() },
                     onReminderTimeChange = viewModel::updateReminderTime,
                     onNearExpiryDaysChange = viewModel::updateNearExpiryDays,
+                    onAddCategoryTag = viewModel::addCategoryTag,
+                    onDeleteCategoryTag = viewModel::deleteCategoryTag,
+                    onMoveCategoryTag = viewModel::moveCategoryTag,
+                    onSmartParsingEnabledChange = viewModel::updateSmartParsingEnabled,
+                    onSmartParsingApiUrlChange = viewModel::updateSmartParsingApiUrl,
+                    onSmartParsingApiKeyChange = viewModel::updateSmartParsingApiKey,
+                    onSmartParsingModelChange = viewModel::updateSmartParsingModel,
+                    onTestSmartParsing = viewModel::testSmartParsing,
                 )
             } else {
                 LoadingScreen()
@@ -152,13 +195,10 @@ fun NoWasteApp(viewModel: FoodViewModel) {
 private fun FoodEditRoute(
     itemId: Long,
     uiState: FoodListUiState,
-    productLookupUiState: ProductLookupUiState,
     onNavigateBack: () -> Unit,
     onSave: (FoodItemInput) -> Unit,
     onDelete: () -> Unit,
-    onScanBarcode: () -> Unit,
-    onLookupProduct: (String) -> Unit,
-    onClearProductLookupState: () -> Unit,
+    onPickNameFromPhoto: () -> Unit,
     navBackStackEntry: NavBackStackEntry,
 ) {
     when (uiState) {
@@ -171,11 +211,8 @@ private fun FoodEditRoute(
                 FoodFormScreen(
                     item = item,
                     onNavigateBack = onNavigateBack,
-                    onScanBarcode = onScanBarcode,
+                    onPickNameFromPhoto = onPickNameFromPhoto,
                     categoryTags = uiState.settings.categoryTags,
-                    productLookupUiState = productLookupUiState,
-                    onLookupProduct = onLookupProduct,
-                    onClearProductLookupState = onClearProductLookupState,
                     onSave = onSave,
                     onDelete = onDelete,
                     navBackStackEntry = navBackStackEntry,

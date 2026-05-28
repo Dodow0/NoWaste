@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.nowaste.app.domain.FoodItemInput
+import com.nowaste.app.domain.ShelfLifeUnit
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -46,8 +47,10 @@ class FoodRepositoryRoomTest {
                 expiryDate = LocalDate.of(2026, 5, 30),
                 categoryTag = "Dairy",
                 note = "Opened",
-                barcodeValue = "690000000001",
                 photoUri = "content://com.nowaste.app.fileprovider/food_photos/milk.jpg",
+                productionDate = LocalDate.of(2026, 5, 1),
+                shelfLifeAmount = 30L,
+                shelfLifeUnit = ShelfLifeUnit.DAYS,
             ),
         )
         val earlierId = repository.addFoodItem(
@@ -65,6 +68,9 @@ class FoodRepositoryRoomTest {
             "content://com.nowaste.app.fileprovider/food_photos/milk.jpg",
             database.foodItemDao().getById(laterId)?.photoUri,
         )
+        assertEquals(LocalDate.of(2026, 5, 1), database.foodItemDao().getById(laterId)?.productionDate)
+        assertEquals(30L, database.foodItemDao().getById(laterId)?.shelfLifeAmount)
+        assertEquals(ShelfLifeUnit.DAYS, database.foodItemDao().getById(laterId)?.shelfLifeUnit)
 
         repository.updateFoodItem(
             earlierId,
@@ -73,16 +79,20 @@ class FoodRepositoryRoomTest {
                 expiryDate = LocalDate.of(2026, 5, 27),
                 categoryTag = "Fruit",
                 note = "Crisp",
-                barcodeValue = "690000000002",
                 photoUri = "content://com.nowaste.app.fileprovider/food_photos/apple.jpg",
+                productionDate = LocalDate.of(2026, 5, 20),
+                shelfLifeAmount = 6L,
+                shelfLifeUnit = ShelfLifeUnit.MONTHS,
             ),
         )
         assertEquals("Green apple", database.foodItemDao().getById(earlierId)?.name)
-        assertEquals("690000000002", database.foodItemDao().getById(earlierId)?.barcodeValue)
         assertEquals(
             "content://com.nowaste.app.fileprovider/food_photos/apple.jpg",
             database.foodItemDao().getById(earlierId)?.photoUri,
         )
+        assertEquals(LocalDate.of(2026, 5, 20), database.foodItemDao().getById(earlierId)?.productionDate)
+        assertEquals(6L, database.foodItemDao().getById(earlierId)?.shelfLifeAmount)
+        assertEquals(ShelfLifeUnit.MONTHS, database.foodItemDao().getById(earlierId)?.shelfLifeUnit)
 
         repository.deleteFoodItem(laterId)
         val afterDelete = repository.observeFoodItemsSortedByExpiry().first()
@@ -101,5 +111,24 @@ class FoodRepositoryRoomTest {
 
         assertEquals(listOf("Yesterday", "Today", "Threshold"), reminders.map { it.name })
         assertTrue(reminders.none { it.name == "Later" })
+    }
+
+    @Test
+    fun reminderCheckUsesItemSpecificReminderDaysWhenSet() = runTest {
+        val today = LocalDate.of(2026, 5, 25)
+        repository.addFoodItem(
+            FoodItemInput(
+                name = "Custom",
+                expiryDate = today.plusDays(5),
+                categoryTag = "",
+                note = "",
+                reminderDaysBeforeExpiry = 5,
+            ),
+        )
+        repository.addFoodItem(FoodItemInput("Default", today.plusDays(5), "", ""))
+
+        val reminders = repository.getItemsForReminderCheck(today, nearExpiryDays = 3)
+
+        assertEquals(listOf("Custom"), reminders.map { it.name })
     }
 }

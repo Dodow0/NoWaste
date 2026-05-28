@@ -35,7 +35,13 @@ class ExpiryReminderWorker(
         val repository = ServiceLocator.foodRepository(applicationContext)
         val nearExpiryDays = ServiceLocator.appSettings(applicationContext).nearExpiryDays
         val items = repository.getItemsForReminderCheck(today, nearExpiryDays)
-        items.forEach { sendReminder(it, today, nearExpiryDays) }
+        items.forEach { item ->
+            sendReminder(
+                item = item,
+                today = today,
+                nearExpiryDays = item.reminderDaysBeforeExpiry ?: nearExpiryDays,
+            )
+        }
         return Result.success()
     }
 

@@ -5,21 +5,25 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.nowaste.app.data.FoodItem
 import com.nowaste.app.data.FoodRepository
+import com.nowaste.app.domain.BatchPhotoPendingNamePrefix
+import com.nowaste.app.domain.BatchPhotoPendingNote
 import com.nowaste.app.domain.FoodItemInput
-import com.nowaste.app.network.ProductLookupResult
-import com.nowaste.app.network.ProductLookupService
+import com.nowaste.app.network.SmartFoodParseConfig
+import com.nowaste.app.network.SmartFoodParseResult
+import com.nowaste.app.network.SmartFoodTextParser
 import com.nowaste.app.notifications.ReminderScheduler
 import com.nowaste.app.settings.AppSettings
 import com.nowaste.app.settings.SettingsState
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.time.LocalDate
 
 sealed interface FoodListUiState {
     data object Loading : FoodListUiState
@@ -29,22 +33,12 @@ sealed interface FoodListUiState {
     ) : FoodListUiState
 }
 
-sealed interface ProductLookupUiState {
-    data object Idle : ProductLookupUiState
-    data object Loading : ProductLookupUiState
-    data class Success(val result: ProductLookupResult?) : ProductLookupUiState
-    data object Failed : ProductLookupUiState
-}
-
 class FoodViewModel(
     private val repository: FoodRepository,
     private val settings: AppSettings,
-    private val productLookupService: ProductLookupService,
     private val appContext: Context,
+    private val smartFoodTextParser: SmartFoodTextParser = SmartFoodTextParser(),
 ) : ViewModel() {
-    private val productLookupState = MutableStateFlow<ProductLookupUiState>(ProductLookupUiState.Idle)
-    val productLookupUiState: StateFlow<ProductLookupUiState> = productLookupState.asStateFlow()
-
     val foodListUiState: StateFlow<FoodListUiState> =
         combine(
             repository.observeFoodItemsSortedByExpiry(),
@@ -65,6 +59,7 @@ class FoodViewModel(
         onSaved: () -> Unit,
     ) {
         viewModelScope.launch {
+            input.categoryTag.trim().takeIf { it.isNotBlank() }?.let(settings::addCategoryTag)
             if (id == null) {
                 repository.addFoodItem(input)
             } else {
@@ -102,26 +97,122 @@ class FoodViewModel(
         settings.deleteCategoryTag(tag)
     }
 
-    fun lookupProduct(barcode: String) {
-        if (barcode.isBlank()) return
+    fun moveCategoryTag(tag: String, direction: Int) {
+        settings.moveCategoryTag(tag, direction)
+    }
+
+    fun updateSmartParsingEnabled(enabled: Boolean) {
+        settings.smartParsingEnabled = enabled
+    }
+
+    fun updateSmartParsingApiUrl(apiUrl: String) {
+        settings.smartParsingApiUrl = apiUrl
+    }
+
+    fun updateSmartParsingApiKey(apiKey: String) {
+        settings.smartParsingApiKey = apiKey
+    }
+
+    fun updateSmartParsingModel(model: String) {
+        settings.smartParsingModel = model
+    }
+
+    fun parseSmartFoodBatchText(
+        text: String,
+        onParsed: (List<SmartFoodParseResult>) -> Unit,
+        onError: (String) -> Unit,
+    ) {
         viewModelScope.launch {
-            productLookupState.value = ProductLookupUiState.Loading
-            productLookupState.value = try {
-                ProductLookupUiState.Success(productLookupService.lookup(barcode))
-            } catch (_: Exception) {
-                ProductLookupUiState.Failed
+            try {
+                if (!settings.smartParsingEnabled) {
+                    onError("请先在设置中开启智能解析。")
+                    return@launch
+                }
+                val result = withContext(Dispatchers.IO) {
+                    smartFoodTextParser.parseBatch(
+                        text = text,
+                        config = SmartFoodParseConfig(
+                            apiUrl = settings.smartParsingApiUrl,
+                            apiKey = settings.smartParsingApiKey,
+                            model = settings.smartParsingModel,
+                        ),
+                    )
+                }
+                onParsed(result)
+            } catch (error: Throwable) {
+                onError(error.message ?: "智能解析失败，请检查配置或稍后重试。")
             }
         }
     }
 
-    fun clearProductLookupState() {
-        productLookupState.value = ProductLookupUiState.Idle
+    fun testSmartParsing(
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            try {
+                if (!settings.smartParsingEnabled) {
+                    onError("请先在设置中开启智能解析。")
+                    return@launch
+                }
+                val message = withContext(Dispatchers.IO) {
+                    smartFoodTextParser.testConnection(
+                        config = SmartFoodParseConfig(
+                            apiUrl = settings.smartParsingApiUrl,
+                            apiKey = settings.smartParsingApiKey,
+                            model = settings.smartParsingModel,
+                        ),
+                    )
+                }
+                onSuccess(message)
+            } catch (error: Throwable) {
+                onError(error.message ?: "智能解析连接测试失败，请检查配置。")
+            }
+        }
+    }
+
+    fun addFoodsFromPhotos(
+        photoUris: List<String>,
+        onAdded: () -> Unit,
+    ) {
+        val distinctPhotoUris = photoUris.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        if (distinctPhotoUris.isEmpty()) {
+            onAdded()
+            return
+        }
+
+        viewModelScope.launch {
+            distinctPhotoUris.forEachIndexed { index, photoUri ->
+                repository.addFoodItem(
+                    FoodItemInput(
+                        name = "$BatchPhotoPendingNamePrefix ${index + 1}",
+                        expiryDate = LocalDate.now().plusDays(3),
+                        categoryTag = "",
+                        note = BatchPhotoPendingNote,
+                        photoUri = photoUri,
+                    ),
+                )
+            }
+            onAdded()
+        }
+    }
+
+    fun saveFoodItems(
+        inputs: List<FoodItemInput>,
+        onSaved: () -> Unit,
+    ) {
+        viewModelScope.launch {
+            inputs.forEach { input ->
+                input.categoryTag.trim().takeIf { it.isNotBlank() }?.let(settings::addCategoryTag)
+                repository.addFoodItem(input)
+            }
+            onSaved()
+        }
     }
 
     class Factory(
         private val repository: FoodRepository,
         private val settings: AppSettings,
-        private val productLookupService: ProductLookupService,
         private val appContext: Context,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
@@ -130,11 +221,11 @@ class FoodViewModel(
                 return FoodViewModel(
                     repository = repository,
                     settings = settings,
-                    productLookupService = productLookupService,
                     appContext = appContext,
                 ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
+
 }

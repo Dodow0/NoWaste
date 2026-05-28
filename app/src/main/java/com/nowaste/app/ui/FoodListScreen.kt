@@ -2,10 +2,8 @@ package com.nowaste.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,9 +26,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -39,7 +37,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -90,16 +87,15 @@ private val DateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy
 fun FoodListScreen(
     uiState: FoodListUiState,
     onAddClick: () -> Unit,
+    onBatchSmartAddClick: () -> Unit,
+    onBatchPhotoAddClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onFoodClick: (FoodItem) -> Unit,
     onDeleteFood: (FoodItem) -> Unit,
-    onConsumeFood: (FoodItem) -> Unit,
-    onAddCategoryTag: (String) -> Unit,
-    onDeleteCategoryTag: (String) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
-    var pendingAction by remember { mutableStateOf<FoodAction?>(null) }
+    var pendingDeleteItem by remember { mutableStateOf<FoodItem?>(null) }
     val listState = rememberLazyListState()
     var isFabExpanded by remember { mutableStateOf(true) }
 
@@ -146,19 +142,50 @@ fun FoodListScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onAddClick,
-                icon = {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                    )
-                },
-                text = { Text("添加食品") },
-                expanded = isFabExpanded,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            )
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = onBatchSmartAddClick,
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                        )
+                    },
+                    text = { Text("智能批量") },
+                    expanded = isFabExpanded,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                ExtendedFloatingActionButton(
+                    onClick = onBatchPhotoAddClick,
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.PhotoCamera,
+                            contentDescription = null,
+                        )
+                    },
+                    text = { Text("连续拍照") },
+                    expanded = isFabExpanded,
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                ExtendedFloatingActionButton(
+                    onClick = onAddClick,
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                        )
+                    },
+                    text = { Text("添加食品") },
+                    expanded = isFabExpanded,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
         },
     ) { padding ->
         when (uiState) {
@@ -179,21 +206,14 @@ fun FoodListScreen(
                         onQueryChange = { query = it },
                         selectedCategory = selectedCategory,
                         categories = categoryOptions,
-                        editableCategories = uiState.settings.categoryTags,
                         onCategorySelected = { selectedCategory = it },
-                        onAddCategoryTag = { category ->
-                            onAddCategoryTag(category)
-                            selectedCategory = category
-                        },
-                        onDeleteCategoryTag = { category ->
-                            if (selectedCategory == category) {
-                                selectedCategory = null
-                            }
-                            onDeleteCategoryTag(category)
-                        },
                     )
                     if (uiState.items.isEmpty()) {
                         EmptyFoodList(
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else if (filteredItems.isEmpty()) {
+                        EmptyFilteredFoodList(
                             modifier = Modifier.weight(1f),
                         )
                     } else {
@@ -202,8 +222,7 @@ fun FoodListScreen(
                             nearExpiryDays = uiState.settings.nearExpiryDays,
                             listState = listState,
                             onFoodClick = onFoodClick,
-                            onDeleteFood = { pendingAction = FoodAction.Delete(it) },
-                            onConsumeFood = { pendingAction = FoodAction.Consume(it) },
+                            onDeleteFood = { pendingDeleteItem = it },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -212,40 +231,31 @@ fun FoodListScreen(
         }
     }
 
-    pendingAction?.let { action ->
+    pendingDeleteItem?.let { item ->
         AlertDialog(
-            onDismissRequest = { pendingAction = null },
+            onDismissRequest = { pendingDeleteItem = null },
             title = {
                 Text(
-                    when (action) {
-                        is FoodAction.Delete -> "删除食品"
-                        is FoodAction.Consume -> "标记已消耗"
-                    },
+                    "删除食品",
                 )
             },
             text = {
                 Text(
-                    when (action) {
-                        is FoodAction.Delete -> "删除后无法恢复。"
-                        is FoodAction.Consume -> "会将已消耗食品从列表中移除。"
-                    },
+                    "删除后无法恢复。",
                 )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        when (action) {
-                            is FoodAction.Delete -> onDeleteFood(action.item)
-                            is FoodAction.Consume -> onConsumeFood(action.item)
-                        }
-                        pendingAction = null
+                        onDeleteFood(item)
+                        pendingDeleteItem = null
                     },
                 ) {
                     Text("确认")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingAction = null }) {
+                TextButton(onClick = { pendingDeleteItem = null }) {
                     Text("取消")
                 }
             },
@@ -269,24 +279,8 @@ private fun ListControls(
     onQueryChange: (String) -> Unit,
     selectedCategory: String?,
     categories: List<String>,
-    editableCategories: List<String>,
     onCategorySelected: (String?) -> Unit,
-    onAddCategoryTag: (String) -> Unit,
-    onDeleteCategoryTag: (String) -> Unit,
 ) {
-    var newCategory by remember { mutableStateOf("") }
-    var isAddingCategory by remember { mutableStateOf(false) }
-    var pendingDeleteCategory by remember { mutableStateOf<String?>(null) }
-
-    fun submitNewCategory() {
-        val normalizedCategory = newCategory.trim()
-        if (normalizedCategory.isNotBlank()) {
-            onAddCategoryTag(normalizedCategory)
-            newCategory = ""
-            isAddingCategory = false
-        }
-    }
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -297,7 +291,7 @@ private fun ListControls(
             value = query,
             onValueChange = onQueryChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("搜索名称、备注或条形码") },
+            label = { Text("搜索名称或备注") },
             singleLine = true,
             shape = MaterialTheme.shapes.large,
             leadingIcon = {
@@ -321,120 +315,31 @@ private fun ListControls(
             contentPadding = PaddingValues(end = 4.dp),
         ) {
             item(key = "all") {
-                FilterChip(
+                CategoryFilterChip(
+                    category = "全部",
                     selected = selectedCategory == null,
                     onClick = { onCategorySelected(null) },
-                    label = { Text("全部") },
                 )
             }
             items(
                 items = categories,
                 key = { it },
             ) { category ->
-                val canDelete = category in editableCategories
                 CategoryFilterChip(
                     category = category,
                     selected = selectedCategory == category,
                     onClick = { onCategorySelected(category) },
-                    canDelete = canDelete,
-                    onDeleteRequest = { pendingDeleteCategory = category },
                 )
-            }
-            item(key = "add-category") {
-                if (isAddingCategory) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextField(
-                            value = newCategory,
-                            onValueChange = { newCategory = it },
-                            modifier = Modifier.width(156.dp),
-                            label = { Text("新增标签") },
-                            singleLine = true,
-                            shape = MaterialTheme.shapes.medium,
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                disabledContainerColor = MaterialTheme.colorScheme.surface,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent,
-                            ),
-                        )
-                        IconButton(
-                            onClick = ::submitNewCategory,
-                            enabled = newCategory.isNotBlank(),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "新增标签",
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                newCategory = ""
-                                isAddingCategory = false
-                            },
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "取消新增标签",
-                            )
-                        }
-                    }
-                } else {
-                    FilterChip(
-                        selected = false,
-                        onClick = { isAddingCategory = true },
-                        label = { Text("新增") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                    )
-                }
             }
         }
     }
-
-    pendingDeleteCategory?.let { category ->
-        AlertDialog(
-            onDismissRequest = { pendingDeleteCategory = null },
-            title = { Text("删除标签") },
-            text = {
-                Text("确定删除“$category”吗？它会从自定义标签中移除，已有食品的标签内容不会被清空。")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDeleteCategoryTag(category)
-                        pendingDeleteCategory = null
-                    },
-                ) {
-                    Text("删除")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDeleteCategory = null }) {
-                    Text("取消")
-                }
-            },
-        )
-    }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CategoryFilterChip(
     category: String,
     selected: Boolean,
-    canDelete: Boolean,
     onClick: () -> Unit,
-    onDeleteRequest: () -> Unit,
 ) {
     val containerColor = if (selected) {
         MaterialTheme.colorScheme.primaryContainer
@@ -448,10 +353,9 @@ private fun CategoryFilterChip(
     }
 
     Surface(
-        modifier = Modifier.combinedClickable(
-            onClick = onClick,
-            onLongClick = if (canDelete) onDeleteRequest else null,
-        ),
+        modifier = Modifier
+            .height(40.dp)
+            .clickable(onClick = onClick),
         shape = CircleShape,
         color = containerColor,
         contentColor = contentColor,
@@ -464,14 +368,19 @@ private fun CategoryFilterChip(
             },
         ),
     ) {
-        Text(
-            text = category,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = category,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -496,6 +405,34 @@ private fun EmptyFoodList(modifier: Modifier = Modifier) {
             )
             Text(
                 text = "从右下角添加第一件食品",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyFilteredFoodList(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            EmptyFoodIllustration(
+                modifier = Modifier.size(150.dp),
+            )
+            Text(
+                text = "没有找到匹配的食品",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "换个关键词或清除分类筛选试试。",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -555,7 +492,6 @@ private fun FoodList(
     listState: LazyListState,
     onFoodClick: (FoodItem) -> Unit,
     onDeleteFood: (FoodItem) -> Unit,
-    onConsumeFood: (FoodItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -573,7 +509,6 @@ private fun FoodList(
                 nearExpiryDays = nearExpiryDays,
                 onClick = { onFoodClick(item) },
                 onDeleteFood = { onDeleteFood(item) },
-                onConsumeFood = { onConsumeFood(item) },
                 modifier = Modifier.animateItem(),
             )
         }
@@ -587,14 +522,14 @@ private fun SwipeFoodItemRow(
     nearExpiryDays: Int,
     onClick: () -> Unit,
     onDeleteFood: () -> Unit,
-    onConsumeFood: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> onConsumeFood()
-                SwipeToDismissBoxValue.EndToStart -> onDeleteFood()
+                SwipeToDismissBoxValue.StartToEnd,
+                SwipeToDismissBoxValue.EndToStart,
+                -> onDeleteFood()
                 SwipeToDismissBoxValue.Settled -> Unit
             }
             false
@@ -605,13 +540,12 @@ private fun SwipeFoodItemRow(
         state = dismissState,
         backgroundContent = {
             val value = dismissState.dismissDirection
-            val backgroundColor = when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.tertiaryContainer
-                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                SwipeToDismissBoxValue.Settled -> MaterialTheme.colorScheme.surfaceVariant
+            val backgroundColor = if (value == SwipeToDismissBoxValue.Settled) {
+                MaterialTheme.colorScheme.surfaceVariant
+            } else {
+                MaterialTheme.colorScheme.errorContainer
             }
             val alignment = if (value == SwipeToDismissBoxValue.EndToStart) Alignment.CenterEnd else Alignment.CenterStart
-            val icon = if (value == SwipeToDismissBoxValue.EndToStart) Icons.Default.Delete else Icons.Default.Check
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -621,8 +555,9 @@ private fun SwipeFoodItemRow(
                 contentAlignment = alignment,
             ) {
                 Icon(
-                    imageVector = icon,
+                    imageVector = Icons.Default.Delete,
                     contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
         },
@@ -782,9 +717,4 @@ private fun relativeExpiryText(expiryDate: LocalDate, today: LocalDate): String 
         days == 0L -> "今天"
         else -> "已过期${-days}天"
     }
-}
-
-private sealed interface FoodAction {
-    data class Delete(val item: FoodItem) : FoodAction
-    data class Consume(val item: FoodItem) : FoodAction
 }

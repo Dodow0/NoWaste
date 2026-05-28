@@ -14,18 +14,22 @@ class FoodRepository(
 
     suspend fun addFoodItem(input: FoodItemInput): Long {
         val timestamp = now()
-        return dao.insert(
+        val itemId = dao.insert(
             FoodItem(
                 name = input.name.trim(),
                 expiryDate = input.expiryDate,
+                productionDate = input.productionDate,
+                shelfLifeAmount = input.shelfLifeAmount,
+                shelfLifeUnit = input.shelfLifeUnit,
+                reminderDaysBeforeExpiry = input.reminderDaysBeforeExpiry,
                 categoryTag = input.categoryTag.trim(),
                 note = input.note.trim(),
-                barcodeValue = input.barcodeValue.trim(),
                 photoUri = input.photoUri.trim(),
                 createdAt = timestamp,
                 updatedAt = timestamp,
             ),
         )
+        return itemId
     }
 
     suspend fun updateFoodItem(id: Long, input: FoodItemInput) {
@@ -34,9 +38,12 @@ class FoodRepository(
             existing.copy(
                 name = input.name.trim(),
                 expiryDate = input.expiryDate,
+                productionDate = input.productionDate,
+                shelfLifeAmount = input.shelfLifeAmount,
+                shelfLifeUnit = input.shelfLifeUnit,
+                reminderDaysBeforeExpiry = input.reminderDaysBeforeExpiry,
                 categoryTag = input.categoryTag.trim(),
                 note = input.note.trim(),
-                barcodeValue = input.barcodeValue.trim(),
                 photoUri = input.photoUri.trim(),
                 updatedAt = now(),
             ),
@@ -48,6 +55,9 @@ class FoodRepository(
     }
 
     suspend fun getItemsForReminderCheck(date: LocalDate, nearExpiryDays: Int = 1): List<FoodItem> {
-        return dao.getByExpiryDates(reminderExpiryDatesFor(date, nearExpiryDays))
+        return dao.getAllForReminderCheck().filter { item ->
+            val reminderDays = item.reminderDaysBeforeExpiry ?: nearExpiryDays
+            item.expiryDate in reminderExpiryDatesFor(date, reminderDays)
+        }
     }
 }

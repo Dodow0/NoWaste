@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
+import com.nowaste.app.notifications.ReminderScheduler
 import com.nowaste.app.ui.FoodViewModel
 import com.nowaste.app.ui.NoWasteApp
 import com.nowaste.app.ui.theme.NoWasteTheme
@@ -18,13 +19,17 @@ class MainActivity : ComponentActivity() {
         FoodViewModel.Factory(
             repository = ServiceLocator.foodRepository(applicationContext),
             settings = ServiceLocator.appSettings(applicationContext),
-            productLookupService = ServiceLocator.productLookupService(),
             appContext = applicationContext,
         )
     }
 
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                scheduleReminders()
+                ReminderScheduler.runOnceNow(applicationContext)
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,5 +53,12 @@ class MainActivity : ComponentActivity() {
         if (!granted) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    private fun scheduleReminders() {
+        ReminderScheduler.scheduleDaily(
+            context = applicationContext,
+            settings = ServiceLocator.appSettings(applicationContext),
+        )
     }
 }

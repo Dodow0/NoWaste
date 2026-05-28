@@ -6,7 +6,6 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
-import java.time.LocalDate
 
 @Dao
 interface FoodItemDao {
@@ -16,8 +15,8 @@ interface FoodItemDao {
     @Query("SELECT * FROM food_items WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): FoodItem?
 
-    @Query("SELECT * FROM food_items WHERE expiryDate IN (:dates) ORDER BY expiryDate ASC, name COLLATE NOCASE ASC")
-    suspend fun getByExpiryDates(dates: List<LocalDate>): List<FoodItem>
+    @Query("SELECT * FROM food_items ORDER BY expiryDate ASC, name COLLATE NOCASE ASC")
+    suspend fun getAllForReminderCheck(): List<FoodItem>
 
     @Insert
     suspend fun insert(item: FoodItem): Long

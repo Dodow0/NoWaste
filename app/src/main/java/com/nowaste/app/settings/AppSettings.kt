@@ -12,6 +12,10 @@ data class SettingsState(
     val reminderMinute: Int = AppSettings.DEFAULT_REMINDER_MINUTE,
     val nearExpiryDays: Int = AppSettings.DEFAULT_NEAR_EXPIRY_DAYS,
     val categoryTags: List<String> = AppSettings.DEFAULT_CATEGORY_TAGS,
+    val smartParsingEnabled: Boolean = false,
+    val smartParsingApiUrl: String = "",
+    val smartParsingApiKey: String = "",
+    val smartParsingModel: String = "",
 )
 
 class AppSettings(context: Context) {
@@ -67,6 +71,30 @@ class AppSettings(context: Context) {
                 .apply()
         }
 
+    var smartParsingEnabled: Boolean
+        get() = preferences.getBoolean(KEY_SMART_PARSING_ENABLED, false)
+        set(value) {
+            preferences.edit().putBoolean(KEY_SMART_PARSING_ENABLED, value).apply()
+        }
+
+    var smartParsingApiUrl: String
+        get() = preferences.getString(KEY_SMART_PARSING_API_URL, "").orEmpty()
+        set(value) {
+            preferences.edit().putString(KEY_SMART_PARSING_API_URL, value.trim()).apply()
+        }
+
+    var smartParsingApiKey: String
+        get() = preferences.getString(KEY_SMART_PARSING_API_KEY, "").orEmpty()
+        set(value) {
+            preferences.edit().putString(KEY_SMART_PARSING_API_KEY, value.trim()).apply()
+        }
+
+    var smartParsingModel: String
+        get() = preferences.getString(KEY_SMART_PARSING_MODEL, "").orEmpty()
+        set(value) {
+            preferences.edit().putString(KEY_SMART_PARSING_MODEL, value.trim()).apply()
+        }
+
     fun updateReminderTime(hour: Int, minute: Int) {
         preferences.edit()
             .putInt(KEY_REMINDER_HOUR, hour.coerceIn(0, 23))
@@ -84,12 +112,27 @@ class AppSettings(context: Context) {
         categoryTags = categoryTags.filterNot { it == tag }
     }
 
+    fun moveCategoryTag(tag: String, direction: Int) {
+        val tags = categoryTags.toMutableList()
+        val fromIndex = tags.indexOf(tag)
+        if (fromIndex == -1) return
+        val toIndex = (fromIndex + direction).coerceIn(0, tags.lastIndex)
+        if (fromIndex == toIndex) return
+        tags.removeAt(fromIndex)
+        tags.add(toIndex, tag)
+        categoryTags = tags
+    }
+
     private fun readState(): SettingsState =
         SettingsState(
             reminderHour = reminderHour,
             reminderMinute = reminderMinute,
             nearExpiryDays = nearExpiryDays,
             categoryTags = categoryTags,
+            smartParsingEnabled = smartParsingEnabled,
+            smartParsingApiUrl = smartParsingApiUrl,
+            smartParsingApiKey = smartParsingApiKey,
+            smartParsingModel = smartParsingModel,
         )
 
     fun dispose() {
@@ -109,6 +152,10 @@ class AppSettings(context: Context) {
         private const val KEY_REMINDER_MINUTE = "reminder_minute"
         private const val KEY_NEAR_EXPIRY_DAYS = "near_expiry_days"
         private const val KEY_CATEGORY_TAGS = "category_tags"
+        private const val KEY_SMART_PARSING_ENABLED = "smart_parsing_enabled"
+        private const val KEY_SMART_PARSING_API_URL = "smart_parsing_api_url"
+        private const val KEY_SMART_PARSING_API_KEY = "smart_parsing_api_key"
+        private const val KEY_SMART_PARSING_MODEL = "smart_parsing_model"
         private const val TAG_SEPARATOR = "\n"
     }
 }

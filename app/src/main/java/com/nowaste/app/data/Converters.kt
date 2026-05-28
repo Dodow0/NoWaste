@@ -1,6 +1,7 @@
 package com.nowaste.app.data
 
 import androidx.room.TypeConverter
+import com.nowaste.app.domain.ShelfLifeUnit
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -16,4 +17,11 @@ class Converters {
 
     @TypeConverter
     fun toLocalDateTime(value: String?): LocalDateTime? = value?.let(LocalDateTime::parse)
+
+    @TypeConverter
+    fun fromShelfLifeUnit(value: ShelfLifeUnit?): String? = value?.name
+
+    @TypeConverter
+    fun toShelfLifeUnit(value: String?): ShelfLifeUnit? =
+        value?.let { runCatching { ShelfLifeUnit.valueOf(it) }.getOrNull() }
 }

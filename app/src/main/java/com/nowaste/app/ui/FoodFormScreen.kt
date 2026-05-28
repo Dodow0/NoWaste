@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.MediaStore
-import android.speech.RecognizerIntent
 import android.widget.ImageView
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +22,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -30,10 +33,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -45,7 +46,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -65,17 +65,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.nowaste.app.data.FoodItem
+import com.nowaste.app.domain.BatchPhotoPendingNamePrefix
+import com.nowaste.app.domain.BatchPhotoPendingNote
 import com.nowaste.app.domain.FoodItemInput
+import com.nowaste.app.domain.ShelfLifeDuration
+import com.nowaste.app.domain.extractExpiryDateFromText
+import com.nowaste.app.domain.extractProductionDateFromText
+import com.nowaste.app.domain.extractShelfLifeDurationFromText
 import com.nowaste.app.photos.createFoodPhotoUri
+import com.nowaste.app.photos.deleteFoodPhotoUri
+import com.nowaste.app.settings.AppSettings
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -88,85 +103,164 @@ private val FormDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("
 fun FoodFormScreen(
     item: FoodItem?,
     onNavigateBack: () -> Unit,
-    onScanBarcode: () -> Unit,
+    onPickNameFromPhoto: () -> Unit,
     categoryTags: List<String> = emptyList(),
-    productLookupUiState: ProductLookupUiState = ProductLookupUiState.Idle,
-    onLookupProduct: (String) -> Unit = {},
-    onClearProductLookupState: () -> Unit = {},
     onSave: (FoodItemInput) -> Unit,
     onDelete: (() -> Unit)?,
     navBackStackEntry: NavBackStackEntry? = null,
 ) {
     val context = LocalContext.current
     var name by remember(item?.id) { mutableStateOf(item?.name.orEmpty()) }
-    var expiryDate by remember(item?.id) { mutableStateOf(item?.expiryDate ?: LocalDate.now().plusDays(3)) }
+    var productionDateText by remember(item?.id) {
+        mutableStateOf(item?.productionDate?.format(FormDateFormatter).orEmpty())
+    }
+    var shelfLifeText by remember(item?.id) {
+        mutableStateOf(item?.storedShelfLifeText().orEmpty())
+    }
+    var reminderDaysBeforeExpiryText by remember(item?.id) {
+        mutableStateOf(item?.reminderDaysBeforeExpiry?.toString().orEmpty())
+    }
+    var expiryDateText by remember(item?.id) {
+        mutableStateOf(item?.expiryDate?.format(FormDateFormatter).orEmpty())
+    }
     var categoryTag by remember(item?.id) { mutableStateOf(item?.categoryTag.orEmpty()) }
     var note by remember(item?.id) { mutableStateOf(item?.note.orEmpty()) }
-    var barcodeValue by remember(item?.id) { mutableStateOf(item?.barcodeValue.orEmpty()) }
     var photoUri by remember(item?.id) { mutableStateOf(item?.photoUri.orEmpty()) }
     var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingFieldOcrPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var fieldOcrTarget by remember { mutableStateOf<FieldOcrTarget?>(null) }
+    var cameraPermissionAction by remember { mutableStateOf(CameraPermissionAction.FoodPhoto) }
     var launchCameraCapture by remember { mutableStateOf(false) }
-    var showDatePicker by remember { mutableStateOf(false) }
+    var launchFieldOcrCapture by remember { mutableStateOf(false) }
+    var showProductionDatePicker by remember { mutableStateOf(false) }
+    var showExpiryDatePicker by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
-    var showSpeechUnavailableDialog by remember { mutableStateOf(false) }
     var showCameraUnavailableDialog by remember { mutableStateOf(false) }
     var showCameraPermissionDeniedDialog by remember { mutableStateOf(false) }
+    var showPhotoViewer by remember { mutableStateOf(false) }
+    var isReadingFieldOcr by remember { mutableStateOf(false) }
+    var fieldOcrFeedback by remember { mutableStateOf<String?>(null) }
+    val parsedProductionDate = remember(productionDateText) {
+        parseProductionDateInput(productionDateText)
+    }
+    val parsedShelfLife = remember(shelfLifeText) {
+        extractShelfLifeDurationFromText(shelfLifeText)
+    }
+    val parsedExpiryDate = remember(expiryDateText) {
+        parseExpiryDateInput(expiryDateText)
+    }
+    val parsedReminderDaysBeforeExpiry = remember(reminderDaysBeforeExpiryText) {
+        reminderDaysBeforeExpiryText.trim().takeIf { it.isNotBlank() }?.toIntOrNull()
+    }
+    val calculatedExpiryDate = parsedProductionDate?.let { productionDate ->
+        parsedShelfLife?.addTo(productionDate)
+    }
 
-    val scannedBarcodeState = if (navBackStackEntry != null) {
+    val selectedFoodNameState = if (navBackStackEntry != null) {
         navBackStackEntry.savedStateHandle
-            .getStateFlow("scannedBarcode", "")
+            .getStateFlow("selectedFoodName", "")
             .collectAsStateWithLifecycle()
     } else {
         remember { mutableStateOf("") }
     }
-    val scannedBarcode by scannedBarcodeState
-    LaunchedEffect(scannedBarcode) {
-        if (scannedBarcode.isNotBlank()) {
-            barcodeValue = scannedBarcode
-            onLookupProduct(scannedBarcode)
-            navBackStackEntry?.savedStateHandle?.set("scannedBarcode", "")
+    val selectedFoodName by selectedFoodNameState
+    LaunchedEffect(selectedFoodName) {
+        if (selectedFoodName.isNotBlank()) {
+            name = selectedFoodName.trim()
+            navBackStackEntry?.savedStateHandle?.set("selectedFoodName", "")
         }
     }
 
-    LaunchedEffect(productLookupUiState) {
-        val result = (productLookupUiState as? ProductLookupUiState.Success)?.result
-        if (result != null) {
-            if (name.isBlank() && !result.name.isNullOrBlank()) {
-                name = result.name
-            }
-            if (categoryTag.isBlank() && !result.categoryTag.isNullOrBlank()) {
-                categoryTag = result.categoryTag
-            }
-            onClearProductLookupState()
+    fun recognizeFieldTextFromPhoto(uri: Uri, target: FieldOcrTarget) {
+        isReadingFieldOcr = true
+        fieldOcrFeedback = "正在识别${target.label}..."
+        try {
+            val image = InputImage.fromFilePath(context, uri)
+            val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+            recognizer.process(image)
+                .addOnSuccessListener { visionText ->
+                    when (target) {
+                        FieldOcrTarget.ProductionDate -> {
+                            val detectedDate = extractProductionDateFromText(visionText.text)
+                            if (detectedDate != null) {
+                                productionDateText = detectedDate.format(FormDateFormatter)
+                                fieldOcrFeedback = "已识别生产日期：${detectedDate.format(FormDateFormatter)}"
+                            } else {
+                                fieldOcrFeedback = "未识别到生产日期，可手动输入如 2026-05-20。"
+                            }
+                        }
+
+                        FieldOcrTarget.ShelfLife -> {
+                            val detectedShelfLife = extractShelfLifeDurationFromText(visionText.text)
+                            if (detectedShelfLife != null) {
+                                shelfLifeText = detectedShelfLife.toDisplayText()
+                                fieldOcrFeedback = "已识别保质期：${detectedShelfLife.toDisplayText()}"
+                            } else {
+                                fieldOcrFeedback = "未识别到保质期，可手动输入如 180天、35日、12个月。"
+                            }
+                        }
+
+                        FieldOcrTarget.ExpiryDate -> {
+                            val detectedDate = extractExpiryDateFromText(visionText.text)
+                            if (detectedDate != null) {
+                                expiryDateText = detectedDate.format(FormDateFormatter)
+                                fieldOcrFeedback = "已识别到期日：${detectedDate.format(FormDateFormatter)}"
+                            } else {
+                                fieldOcrFeedback = "未识别到到期日，可手动输入如 2026-05-20。"
+                            }
+                        }
+                    }
+                }
+                .addOnFailureListener {
+                    fieldOcrFeedback = "${target.label}识别失败，可手动输入。"
+                }
+                .addOnCompleteListener {
+                    isReadingFieldOcr = false
+                    recognizer.close()
+                    deleteFoodPhotoUri(context, uri)
+                }
+        } catch (_: Exception) {
+            isReadingFieldOcr = false
+            fieldOcrFeedback = "${target.label}识别失败，可手动输入。"
+            deleteFoodPhotoUri(context, uri)
         }
     }
 
-    val voiceLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val spokenText = result.data
-                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                ?.firstOrNull()
-                .orEmpty()
-            if (spokenText.isNotBlank()) {
-                note = if (note.isBlank()) spokenText else "$note\n$spokenText"
-            }
-        }
-    }
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            pendingPhotoUri?.let { photoUri = it.toString() }
+        pendingPhotoUri?.let {
+            if (result.resultCode == Activity.RESULT_OK) {
+                photoUri = it.toString()
+            } else {
+                deleteFoodPhotoUri(context, it)
+            }
         }
         pendingPhotoUri = null
     }
+
+    val fieldOcrCameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = pendingFieldOcrPhotoUri
+        val target = fieldOcrTarget
+        if (result.resultCode == Activity.RESULT_OK && uri != null && target != null) {
+            recognizeFieldTextFromPhoto(uri, target)
+        } else if (uri != null) {
+            deleteFoodPhotoUri(context, uri)
+        }
+        pendingFieldOcrPhotoUri = null
+        fieldOcrTarget = null
+    }
+
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
-            launchCameraCapture = true
+            when (cameraPermissionAction) {
+                CameraPermissionAction.FoodPhoto -> launchCameraCapture = true
+                CameraPermissionAction.FieldOcr -> launchFieldOcrCapture = true
+            }
         } else {
             showCameraPermissionDeniedDialog = true
         }
@@ -187,16 +281,94 @@ fun FoodFormScreen(
                 )
             } catch (_: ActivityNotFoundException) {
                 pendingPhotoUri = null
+                deleteFoodPhotoUri(context, uri)
                 showCameraUnavailableDialog = true
             } catch (_: SecurityException) {
                 pendingPhotoUri = null
+                deleteFoodPhotoUri(context, uri)
+                showCameraPermissionDeniedDialog = true
+            }
+        }
+    }
+
+    LaunchedEffect(launchFieldOcrCapture) {
+        if (launchFieldOcrCapture) {
+            launchFieldOcrCapture = false
+            val uri = createFoodPhotoUri(context)
+            pendingFieldOcrPhotoUri = uri
+            try {
+                fieldOcrCameraLauncher.launch(
+                    Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                        putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                        addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    },
+                )
+            } catch (_: ActivityNotFoundException) {
+                pendingFieldOcrPhotoUri = null
+                fieldOcrTarget = null
+                deleteFoodPhotoUri(context, uri)
+                showCameraUnavailableDialog = true
+            } catch (_: SecurityException) {
+                pendingFieldOcrPhotoUri = null
+                fieldOcrTarget = null
+                deleteFoodPhotoUri(context, uri)
                 showCameraPermissionDeniedDialog = true
             }
         }
     }
 
     val isEditing = item != null
-    val canSave = name.isNotBlank()
+    LaunchedEffect(calculatedExpiryDate) {
+        if (calculatedExpiryDate != null) {
+            expiryDateText = calculatedExpiryDate.format(FormDateFormatter)
+        }
+    }
+
+    fun requestFoodPhotoCapture() {
+        cameraPermissionAction = CameraPermissionAction.FoodPhoto
+        val hasCameraPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasCameraPermission) {
+            launchCameraCapture = true
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    fun requestFieldOcrCapture(target: FieldOcrTarget) {
+        fieldOcrTarget = target
+        cameraPermissionAction = CameraPermissionAction.FieldOcr
+        val hasCameraPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasCameraPermission) {
+            launchFieldOcrCapture = true
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    val dateInputFeedback = dateInputFeedback(
+        productionDateText = productionDateText,
+        parsedProductionDate = parsedProductionDate,
+        shelfLifeText = shelfLifeText,
+        hasParsedShelfLife = parsedShelfLife != null,
+        expiryDateText = expiryDateText,
+        parsedExpiryDate = parsedExpiryDate,
+        calculatedExpiryDate = calculatedExpiryDate,
+    )
+    val hasValidOptionalDateInputs =
+        (productionDateText.isBlank() || parsedProductionDate != null) &&
+            (shelfLifeText.isBlank() || parsedShelfLife != null)
+    val reminderDaysRange = AppSettings.MIN_NEAR_EXPIRY_DAYS..AppSettings.MAX_NEAR_EXPIRY_DAYS
+    val hasValidReminderDays =
+        reminderDaysBeforeExpiryText.isBlank() ||
+            (parsedReminderDaysBeforeExpiry != null && parsedReminderDaysBeforeExpiry in reminderDaysRange)
+    val canSave = name.isNotBlank() && parsedExpiryDate != null && hasValidOptionalDateInputs && hasValidReminderDays
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -245,23 +417,105 @@ fun FoodFormScreen(
                     modifier = Modifier.fillMaxWidth(),
                     label = "食品名称",
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                )
-                SoftTextField(
-                    value = expiryDate.format(FormDateFormatter),
-                    onValueChange = {},
-                    modifier = Modifier.fillMaxWidth(),
-                    label = "到期日",
-                    readOnly = true,
                     trailingIcon = {
-                        IconButton(onClick = { showDatePicker = true }) {
+                        IconButton(onClick = onPickNameFromPhoto) {
                             Icon(
-                                imageVector = Icons.Default.CalendarMonth,
-                                contentDescription = "选择日期",
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = "从包装文字选择商品名",
                             )
                         }
                     },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 )
+                SoftTextField(
+                    value = productionDateText,
+                    onValueChange = { productionDateText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "生产日期（可选）",
+                    singleLine = true,
+                    trailingIcon = {
+                        Row {
+                            IconButton(onClick = { showProductionDatePicker = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarMonth,
+                                    contentDescription = "选择生产日期",
+                                )
+                            }
+                            IconButton(onClick = { requestFieldOcrCapture(FieldOcrTarget.ProductionDate) }) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoCamera,
+                                    contentDescription = "拍照识别生产日期",
+                                )
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                )
+                SoftTextField(
+                    value = shelfLifeText,
+                    onValueChange = { shelfLifeText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "保质期（可选，配合生产日期自动计算）",
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = { requestFieldOcrCapture(FieldOcrTarget.ShelfLife) }) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = "拍照识别保质期",
+                            )
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                )
+                SoftTextField(
+                    value = expiryDateText,
+                    onValueChange = { expiryDateText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "到期日（必填）",
+                    singleLine = true,
+                    trailingIcon = {
+                        Row {
+                            IconButton(onClick = { showExpiryDatePicker = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarMonth,
+                                    contentDescription = "选择到期日",
+                                )
+                            }
+                            IconButton(onClick = { requestFieldOcrCapture(FieldOcrTarget.ExpiryDate) }) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoCamera,
+                                    contentDescription = "拍照识别到期日",
+                                )
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                )
+                dateInputFeedback?.let { feedback ->
+                    Text(
+                        text = feedback.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (feedback.isError) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                if (isReadingFieldOcr) {
+                    Text(
+                        text = "正在识别照片文字...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                fieldOcrFeedback?.let { feedback ->
+                    Text(
+                        text = feedback,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             FormSectionCard(title = "附加信息") {
@@ -279,22 +533,25 @@ fun FoodFormScreen(
                     onCategorySelected = { categoryTag = it },
                 )
                 SoftTextField(
-                    value = barcodeValue,
-                    onValueChange = { barcodeValue = it },
+                    value = reminderDaysBeforeExpiryText,
+                    onValueChange = { reminderDaysBeforeExpiryText = it.filter(Char::isDigit) },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "条形码",
+                    label = "单独提醒提前天数（可选）",
                     singleLine = true,
-                    trailingIcon = {
-                        IconButton(onClick = onScanBarcode) {
-                            Icon(
-                                imageVector = Icons.Default.CameraAlt,
-                                contentDescription = "扫描条形码",
-                            )
-                        }
-                    },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Next,
+                    ),
                 )
-                ProductLookupFeedback(productLookupUiState = productLookupUiState)
+                Text(
+                    text = "留空则使用设置页的默认提前天数；可填 ${AppSettings.MIN_NEAR_EXPIRY_DAYS}-${AppSettings.MAX_NEAR_EXPIRY_DAYS} 天。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (hasValidReminderDays) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                )
             }
 
             FormSectionCard(title = "照片与备注") {
@@ -313,39 +570,7 @@ fun FoodFormScreen(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                     )
                     IconButton(
-                        onClick = {
-                            try {
-                                voiceLauncher.launch(
-                                    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                        putExtra(
-                                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-                                        )
-                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "说出备注内容")
-                                    },
-                                )
-                            } catch (_: ActivityNotFoundException) {
-                                showSpeechUnavailableDialog = true
-                            }
-                        },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "语音输入备注",
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            val hasCameraPermission = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.CAMERA,
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (hasCameraPermission) {
-                                launchCameraCapture = true
-                            } else {
-                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
-                        },
+                        onClick = { requestFoodPhotoCapture() },
                     ) {
                         Icon(
                             imageVector = Icons.Default.PhotoCamera,
@@ -353,9 +578,15 @@ fun FoodFormScreen(
                         )
                     }
                 }
+                Text(
+                    text = "位置、数量",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 if (photoUri.isNotBlank()) {
                     PhotoPreview(
                         photoUri = photoUri,
+                        onClick = { showPhotoViewer = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(180.dp)
@@ -369,14 +600,27 @@ fun FoodFormScreen(
 
             Button(
                 onClick = {
+                    val expiryDate = parsedExpiryDate ?: return@Button
+                    val cleanNote = if (
+                        item?.note == BatchPhotoPendingNote &&
+                        note == BatchPhotoPendingNote &&
+                        !name.trim().startsWith(BatchPhotoPendingNamePrefix)
+                    ) {
+                        ""
+                    } else {
+                        note
+                    }
                     onSave(
                         FoodItemInput(
                             name = name,
                             expiryDate = expiryDate,
                             categoryTag = categoryTag,
-                            note = note,
-                            barcodeValue = barcodeValue,
+                            note = cleanNote,
                             photoUri = photoUri,
+                            productionDate = parsedProductionDate,
+                            shelfLifeAmount = parsedShelfLife?.amount,
+                            shelfLifeUnit = parsedShelfLife?.unit,
+                            reminderDaysBeforeExpiry = parsedReminderDaysBeforeExpiry,
                         ),
                     )
                 },
@@ -395,26 +639,54 @@ fun FoodFormScreen(
         }
     }
 
-    if (showDatePicker) {
+    if (showProductionDatePicker) {
         val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = expiryDate.toEpochMillis(),
+            initialSelectedDateMillis = (parsedProductionDate ?: LocalDate.now()).toEpochMillis(),
         )
         DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
+            onDismissRequest = { showProductionDatePicker = false },
             confirmButton = {
                 TextButton(
                     onClick = {
                         datePickerState.selectedDateMillis?.let {
-                            expiryDate = it.toLocalDate()
+                            productionDateText = it.toLocalDate().format(FormDateFormatter)
                         }
-                        showDatePicker = false
+                        showProductionDatePicker = false
                     },
                 ) {
                     Text("确定")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) {
+                TextButton(onClick = { showProductionDatePicker = false }) {
+                    Text("取消")
+                }
+            },
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (showExpiryDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = (parsedExpiryDate ?: calculatedExpiryDate ?: LocalDate.now()).toEpochMillis(),
+        )
+        DatePickerDialog(
+            onDismissRequest = { showExpiryDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let {
+                            expiryDateText = it.toLocalDate().format(FormDateFormatter)
+                        }
+                        showExpiryDatePicker = false
+                    },
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExpiryDatePicker = false }) {
                     Text("取消")
                 }
             },
@@ -436,19 +708,6 @@ fun FoodFormScreen(
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmation = false }) {
                     Text("取消")
-                }
-            },
-        )
-    }
-
-    if (showSpeechUnavailableDialog) {
-        AlertDialog(
-            onDismissRequest = { showSpeechUnavailableDialog = false },
-            title = { Text("无法使用语音输入") },
-            text = { Text("当前设备没有可用的语音识别服务。") },
-            confirmButton = {
-                TextButton(onClick = { showSpeechUnavailableDialog = false }) {
-                    Text("知道了")
                 }
             },
         )
@@ -477,6 +736,13 @@ fun FoodFormScreen(
                     Text("知道了")
                 }
             },
+        )
+    }
+
+    if (showPhotoViewer && photoUri.isNotBlank()) {
+        PhotoViewerDialog(
+            photoUri = photoUri,
+            onDismiss = { showPhotoViewer = false },
         )
     }
 }
@@ -614,56 +880,87 @@ private fun SoftTextField(
     )
 }
 
-@Composable
-private fun ProductLookupFeedback(productLookupUiState: ProductLookupUiState) {
-    when (productLookupUiState) {
-        ProductLookupUiState.Loading -> Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(MaterialTheme.shapes.extraSmall),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.primaryContainer,
-            )
-            Text(
-                text = "正在查询商品信息...",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        ProductLookupUiState.Failed -> Text(
-            text = "没有查到商品信息，可继续手动填写。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        is ProductLookupUiState.Success -> if (productLookupUiState.result == null) {
-            Text(
-                text = "没有查到商品信息，可继续手动填写。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        ProductLookupUiState.Idle -> Unit
-    }
-}
-
 private fun LocalDate.toEpochMillis(): Long =
     atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
 private fun Long.toLocalDate(): LocalDate =
     Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()
 
+private fun FoodItem.storedShelfLifeText(): String? {
+    val amount = shelfLifeAmount ?: return null
+    val unit = shelfLifeUnit ?: return null
+    return ShelfLifeDuration(amount, unit).toDisplayText()
+}
+
+private enum class FieldOcrTarget(val label: String) {
+    ProductionDate("生产日期"),
+    ShelfLife("保质期"),
+    ExpiryDate("到期日"),
+}
+
+private enum class CameraPermissionAction {
+    FoodPhoto,
+    FieldOcr,
+}
+
+private data class DateInputFeedback(
+    val message: String,
+    val isError: Boolean,
+)
+
+private fun parseProductionDateInput(input: String): LocalDate? =
+    input.trim().takeIf { it.isNotBlank() }?.let(::extractProductionDateFromText)
+
+private fun parseExpiryDateInput(input: String): LocalDate? =
+    input.trim().takeIf { it.isNotBlank() }?.let(::extractExpiryDateFromText)
+
+private fun dateInputFeedback(
+    productionDateText: String,
+    parsedProductionDate: LocalDate?,
+    shelfLifeText: String,
+    hasParsedShelfLife: Boolean,
+    expiryDateText: String,
+    parsedExpiryDate: LocalDate?,
+    calculatedExpiryDate: LocalDate?,
+): DateInputFeedback? =
+    when {
+        productionDateText.isNotBlank() && parsedProductionDate == null -> DateInputFeedback(
+            message = "生产日期格式不对，请输入 2026-05-20 这样的日期。",
+            isError = true,
+        )
+
+        shelfLifeText.isNotBlank() && !hasParsedShelfLife -> DateInputFeedback(
+            message = "保质期格式不太对，可以输入 180天、35日、12个月，或“保质期 6 个月”。",
+            isError = true,
+        )
+
+        expiryDateText.isNotBlank() && parsedExpiryDate == null -> DateInputFeedback(
+            message = "到期日格式不对，请输入 2026-05-20，或通过日历/拍照识别填写。",
+            isError = true,
+        )
+
+        shelfLifeText.isNotBlank() && hasParsedShelfLife && parsedProductionDate == null && expiryDateText.isBlank() ->
+            DateInputFeedback(
+                message = "请补充生产日期以自动计算到期日，或直接填写最终到期日。",
+                isError = true,
+            )
+
+        calculatedExpiryDate != null -> DateInputFeedback(
+            message = "已根据生产日期和保质期计算最终到期日：${calculatedExpiryDate.format(FormDateFormatter)}",
+            isError = false,
+        )
+
+        else -> null
+    }
+
 @Composable
 private fun PhotoPreview(
     photoUri: String,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     AndroidView(
-        modifier = modifier,
+        modifier = modifier.clickable(onClick = onClick),
         factory = { context ->
             ImageView(context).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
@@ -673,4 +970,63 @@ private fun PhotoPreview(
             imageView.setImageURI(Uri.parse(photoUri))
         },
     )
+}
+
+@Composable
+private fun PhotoViewerDialog(
+    photoUri: String,
+    onDismiss: () -> Unit,
+) {
+    var scale by remember(photoUri) { mutableStateOf(1f) }
+    var offsetX by remember(photoUri) { mutableStateOf(0f) }
+    var offsetY by remember(photoUri) { mutableStateOf(0f) }
+    val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+        val nextScale = (scale * zoomChange).coerceIn(1f, 5f)
+        scale = nextScale
+        offsetX += panChange.x
+        offsetY += panChange.y
+        if (nextScale == 1f) {
+            offsetX = 0f
+            offsetY = 0f
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
+            AndroidView(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY,
+                    )
+                    .transformable(transformableState),
+                factory = { context ->
+                    ImageView(context).apply {
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                    }
+                },
+                update = { imageView ->
+                    imageView.setImageURI(Uri.parse(photoUri))
+                },
+            )
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp),
+            ) {
+                Text("关闭", color = Color.White)
+            }
+        }
+    }
 }
