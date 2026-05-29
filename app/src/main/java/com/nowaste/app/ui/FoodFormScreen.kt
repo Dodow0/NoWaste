@@ -60,6 +60,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,22 +111,23 @@ fun FoodFormScreen(
     navBackStackEntry: NavBackStackEntry? = null,
 ) {
     val context = LocalContext.current
-    var name by remember(item?.id) { mutableStateOf(item?.name.orEmpty()) }
-    var productionDateText by remember(item?.id) {
+    var name by rememberSaveable(item?.id) { mutableStateOf(item?.name.orEmpty()) }
+    var productionDateText by rememberSaveable(item?.id) {
         mutableStateOf(item?.productionDate?.format(FormDateFormatter).orEmpty())
     }
-    var shelfLifeText by remember(item?.id) {
+    var shelfLifeText by rememberSaveable(item?.id) {
         mutableStateOf(item?.storedShelfLifeText().orEmpty())
     }
-    var reminderDaysBeforeExpiryText by remember(item?.id) {
+    var reminderDaysBeforeExpiryText by rememberSaveable(item?.id) {
         mutableStateOf(item?.reminderDaysBeforeExpiry?.toString().orEmpty())
     }
-    var expiryDateText by remember(item?.id) {
+    var expiryDateText by rememberSaveable(item?.id) {
         mutableStateOf(item?.expiryDate?.format(FormDateFormatter).orEmpty())
     }
-    var categoryTag by remember(item?.id) { mutableStateOf(item?.categoryTag.orEmpty()) }
-    var note by remember(item?.id) { mutableStateOf(item?.note.orEmpty()) }
-    var photoUri by remember(item?.id) { mutableStateOf(item?.photoUri.orEmpty()) }
+    var categoryTag by rememberSaveable(item?.id) { mutableStateOf(item?.categoryTag.orEmpty()) }
+    var quantityText by rememberSaveable(item?.id) { mutableStateOf(item?.quantity?.toString() ?: "1") }
+    var note by rememberSaveable(item?.id) { mutableStateOf(item?.note.orEmpty()) }
+    var photoUri by rememberSaveable(item?.id) { mutableStateOf(item?.photoUri.orEmpty()) }
     var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var pendingFieldOcrPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var fieldOcrTarget by remember { mutableStateOf<FieldOcrTarget?>(null) }
@@ -151,6 +153,9 @@ fun FoodFormScreen(
     }
     val parsedReminderDaysBeforeExpiry = remember(reminderDaysBeforeExpiryText) {
         reminderDaysBeforeExpiryText.trim().takeIf { it.isNotBlank() }?.toIntOrNull()
+    }
+    val parsedQuantity = remember(quantityText) {
+        quantityText.trim().toIntOrNull()
     }
     val calculatedExpiryDate = parsedProductionDate?.let { productionDate ->
         parsedShelfLife?.addTo(productionDate)
@@ -368,7 +373,12 @@ fun FoodFormScreen(
     val hasValidReminderDays =
         reminderDaysBeforeExpiryText.isBlank() ||
             (parsedReminderDaysBeforeExpiry != null && parsedReminderDaysBeforeExpiry in reminderDaysRange)
-    val canSave = name.isNotBlank() && parsedExpiryDate != null && hasValidOptionalDateInputs && hasValidReminderDays
+    val hasValidQuantity = parsedQuantity != null && parsedQuantity >= 1
+    val canSave = name.isNotBlank() &&
+        parsedExpiryDate != null &&
+        hasValidOptionalDateInputs &&
+        hasValidReminderDays &&
+        hasValidQuantity
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -520,6 +530,24 @@ fun FoodFormScreen(
 
             FormSectionCard(title = "附加信息") {
                 SoftTextField(
+                    value = quantityText,
+                    onValueChange = { quantityText = it.filter(Char::isDigit).take(4) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "数量",
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Next,
+                    ),
+                )
+                if (!hasValidQuantity) {
+                    Text(
+                        text = "数量至少为 1。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                SoftTextField(
                     value = categoryTag,
                     onValueChange = { categoryTag = it },
                     modifier = Modifier.fillMaxWidth(),
@@ -579,7 +607,7 @@ fun FoodFormScreen(
                     }
                 }
                 Text(
-                    text = "位置、数量",
+                    text = "位置、照片等",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -615,6 +643,7 @@ fun FoodFormScreen(
                             name = name,
                             expiryDate = expiryDate,
                             categoryTag = categoryTag,
+                            quantity = parsedQuantity ?: 1,
                             note = cleanNote,
                             photoUri = photoUri,
                             productionDate = parsedProductionDate,

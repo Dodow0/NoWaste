@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.nowaste.app.data.FoodItem
 import com.nowaste.app.data.FoodRepository
+import com.nowaste.app.domain.AppTheme
 import com.nowaste.app.domain.BatchPhotoPendingNamePrefix
 import com.nowaste.app.domain.BatchPhotoPendingNote
 import com.nowaste.app.domain.FoodItemInput
@@ -79,6 +80,18 @@ class FoodViewModel(
         }
     }
 
+    fun changeFoodItemQuantity(item: FoodItem, delta: Int) {
+        val nextQuantity = (item.quantity + delta).coerceAtLeast(1)
+        if (nextQuantity == item.quantity) return
+
+        viewModelScope.launch {
+            repository.updateFoodItemQuantity(
+                id = item.id,
+                quantity = nextQuantity,
+            )
+        }
+    }
+
     fun updateReminderTime(hour: Int, minute: Int) {
         settings.updateReminderTime(hour, minute)
         ReminderScheduler.scheduleDaily(appContext, settings)
@@ -115,6 +128,10 @@ class FoodViewModel(
 
     fun updateSmartParsingModel(model: String) {
         settings.smartParsingModel = model
+    }
+
+    fun updateTheme(theme: AppTheme) {
+        settings.theme = theme
     }
 
     fun parseSmartFoodBatchText(

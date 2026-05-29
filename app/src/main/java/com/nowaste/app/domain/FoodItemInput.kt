@@ -11,6 +11,7 @@ data class FoodItemInput(
     val categoryTag: String,
     val note: String,
     val photoUri: String = "",
+    val quantity: Int = 1,
     val productionDate: LocalDate? = null,
     val shelfLifeAmount: Long? = null,
     val shelfLifeUnit: ShelfLifeUnit? = null,

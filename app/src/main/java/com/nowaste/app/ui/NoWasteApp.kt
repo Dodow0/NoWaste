@@ -69,6 +69,7 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                 onSettingsClick = { navController.navigate(Routes.Settings) },
                 onFoodClick = { item -> navController.navigate(Routes.editFood(item.id)) },
                 onDeleteFood = { item -> viewModel.deleteFoodItem(item.id) {} },
+                onQuantityChange = viewModel::changeFoodItemQuantity,
             )
         }
         composable(Routes.AddFood) { entry ->
@@ -182,6 +183,7 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                     onSmartParsingApiUrlChange = viewModel::updateSmartParsingApiUrl,
                     onSmartParsingApiKeyChange = viewModel::updateSmartParsingApiKey,
                     onSmartParsingModelChange = viewModel::updateSmartParsingModel,
+                    onThemeChange = viewModel::updateTheme,
                     onTestSmartParsing = viewModel::testSmartParsing,
                 )
             } else {

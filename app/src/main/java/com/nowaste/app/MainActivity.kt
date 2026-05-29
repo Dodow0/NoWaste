@@ -8,8 +8,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nowaste.app.domain.AppTheme
 import com.nowaste.app.notifications.ReminderScheduler
+import com.nowaste.app.ui.FoodListUiState
 import com.nowaste.app.ui.FoodViewModel
 import com.nowaste.app.ui.NoWasteApp
 import com.nowaste.app.ui.theme.NoWasteTheme
@@ -36,7 +40,10 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
 
         setContent {
-            NoWasteTheme {
+            val uiState by foodViewModel.foodListUiState.collectAsStateWithLifecycle()
+            val theme = (uiState as? FoodListUiState.Ready)?.settings?.theme ?: AppTheme.FOLLOW_SYSTEM
+
+            NoWasteTheme(theme = theme) {
                 NoWasteApp(viewModel = foodViewModel)
             }
         }

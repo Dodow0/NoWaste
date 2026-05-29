@@ -5,14 +5,17 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nowaste.app.domain.AppTheme
 
 private val LightColors: ColorScheme = lightColorScheme(
     primary = Color(0xFFFF7A1A),
@@ -41,6 +44,35 @@ private val LightColors: ColorScheme = lightColorScheme(
     outlineVariant = Color(0xFFE0D0C2),
     inverseSurface = Color(0xFF3A2F28),
     inverseOnSurface = Color(0xFFFFEDE0),
+)
+
+private val DarkColors: ColorScheme = darkColorScheme(
+    primary = Color(0xFFFFB36C),
+    onPrimary = Color(0xFF4E2600),
+    primaryContainer = Color(0xFF713900),
+    onPrimaryContainer = Color(0xFFFFDCC2),
+    secondary = Color(0xFFC5D98F),
+    onSecondary = Color(0xFF2D3400),
+    secondaryContainer = Color(0xFF434D10),
+    onSecondaryContainer = Color(0xFFE1F6A9),
+    tertiary = Color(0xFF7BDDA2),
+    onTertiary = Color(0xFF00391D),
+    tertiaryContainer = Color(0xFF00522D),
+    onTertiaryContainer = Color(0xFF98FABB),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF111417),
+    onBackground = Color(0xFFE4E2DD),
+    surface = Color(0xFF181C1B),
+    onSurface = Color(0xFFE4E2DD),
+    surfaceVariant = Color(0xFF424940),
+    onSurfaceVariant = Color(0xFFC3C9BE),
+    outline = Color(0xFF8D9489),
+    outlineVariant = Color(0xFF424940),
+    inverseSurface = Color(0xFFE4E2DD),
+    inverseOnSurface = Color(0xFF2D3130),
 )
 
 private val NoWasteShapes = Shapes(
@@ -103,9 +135,17 @@ private val NoWasteTypography = Typography(
 )
 
 @Composable
-fun NoWasteTheme(content: @Composable () -> Unit) {
+fun NoWasteTheme(
+    theme: AppTheme = AppTheme.FOLLOW_SYSTEM,
+    content: @Composable () -> Unit,
+) {
+    val darkTheme = when (theme) {
+        AppTheme.FOLLOW_SYSTEM -> isSystemInDarkTheme()
+        AppTheme.LIGHT -> false
+        AppTheme.DARK -> true
+    }
     MaterialTheme(
-        colorScheme = LightColors,
+        colorScheme = if (darkTheme) DarkColors else LightColors,
         typography = NoWasteTypography,
         shapes = NoWasteShapes,
         content = content,

@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+import java.time.LocalDateTime
 
 @Dao
 interface FoodItemDao {
@@ -29,4 +30,7 @@ interface FoodItemDao {
 
     @Query("DELETE FROM food_items WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("UPDATE food_items SET quantity = :quantity, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateQuantity(id: Long, quantity: Int, updatedAt: LocalDateTime)
 }

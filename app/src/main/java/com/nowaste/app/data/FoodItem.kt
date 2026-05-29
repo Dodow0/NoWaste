@@ -19,6 +19,7 @@ data class FoodItem(
     val categoryTag: String,
     val note: String,
     val photoUri: String,
+    val quantity: Int = 1,
     val createdAt: LocalDateTime,
     val updatedAt: LocalDateTime,
 )

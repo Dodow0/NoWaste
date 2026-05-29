@@ -27,7 +27,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -37,6 +39,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,6 +60,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -66,6 +70,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -92,12 +97,13 @@ fun FoodListScreen(
     onSettingsClick: () -> Unit,
     onFoodClick: (FoodItem) -> Unit,
     onDeleteFood: (FoodItem) -> Unit,
+    onQuantityChange: (FoodItem, Int) -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<FoodItem?>(null) }
     val listState = rememberLazyListState()
-    var isFabExpanded by remember { mutableStateOf(true) }
+    var isSpeedDialOpen by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(listState) {
         var previousIndex = listState.firstVisibleItemIndex
@@ -106,11 +112,8 @@ fun FoodListScreen(
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
             .collect { (index, offset) ->
                 val scrollingDown = index > previousIndex || (index == previousIndex && offset > previousOffset)
-                val scrollingUp = index < previousIndex || (index == previousIndex && offset < previousOffset)
                 if (scrollingDown) {
-                    isFabExpanded = false
-                } else if (scrollingUp || (index == 0 && offset == 0)) {
-                    isFabExpanded = true
+                    isSpeedDialOpen = false
                 }
                 previousIndex = index
                 previousOffset = offset
@@ -142,50 +145,22 @@ fun FoodListScreen(
             )
         },
         floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ExtendedFloatingActionButton(
-                    onClick = onBatchSmartAddClick,
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                        )
-                    },
-                    text = { Text("智能批量") },
-                    expanded = isFabExpanded,
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-                ExtendedFloatingActionButton(
-                    onClick = onBatchPhotoAddClick,
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.PhotoCamera,
-                            contentDescription = null,
-                        )
-                    },
-                    text = { Text("连续拍照") },
-                    expanded = isFabExpanded,
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                )
-                ExtendedFloatingActionButton(
-                    onClick = onAddClick,
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                        )
-                    },
-                    text = { Text("添加食品") },
-                    expanded = isFabExpanded,
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
+            AddFoodSpeedDial(
+                isOpen = isSpeedDialOpen,
+                onToggle = { isSpeedDialOpen = !isSpeedDialOpen },
+                onAddClick = {
+                    isSpeedDialOpen = false
+                    onAddClick()
+                },
+                onBatchSmartAddClick = {
+                    isSpeedDialOpen = false
+                    onBatchSmartAddClick()
+                },
+                onBatchPhotoAddClick = {
+                    isSpeedDialOpen = false
+                    onBatchPhotoAddClick()
+                },
+            )
         },
     ) { padding ->
         when (uiState) {
@@ -223,6 +198,7 @@ fun FoodListScreen(
                             listState = listState,
                             onFoodClick = onFoodClick,
                             onDeleteFood = { pendingDeleteItem = it },
+                            onQuantityChange = onQuantityChange,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -260,6 +236,69 @@ fun FoodListScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun AddFoodSpeedDial(
+    isOpen: Boolean,
+    onToggle: () -> Unit,
+    onAddClick: () -> Unit,
+    onBatchSmartAddClick: () -> Unit,
+    onBatchPhotoAddClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (isOpen) {
+            ExtendedFloatingActionButton(
+                onClick = onBatchSmartAddClick,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                    )
+                },
+                text = { Text("智能批量") },
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            ExtendedFloatingActionButton(
+                onClick = onBatchPhotoAddClick,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.PhotoCamera,
+                        contentDescription = null,
+                    )
+                },
+                text = { Text("连续拍照") },
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            ExtendedFloatingActionButton(
+                onClick = onAddClick,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                    )
+                },
+                text = { Text("添加食品") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            )
+        }
+        FloatingActionButton(
+            onClick = onToggle,
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ) {
+            Icon(
+                imageVector = if (isOpen) Icons.Default.Close else Icons.Default.Add,
+                contentDescription = if (isOpen) "收起添加操作" else "展开添加操作",
+            )
+        }
     }
 }
 
@@ -492,6 +531,7 @@ private fun FoodList(
     listState: LazyListState,
     onFoodClick: (FoodItem) -> Unit,
     onDeleteFood: (FoodItem) -> Unit,
+    onQuantityChange: (FoodItem, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -509,6 +549,7 @@ private fun FoodList(
                 nearExpiryDays = nearExpiryDays,
                 onClick = { onFoodClick(item) },
                 onDeleteFood = { onDeleteFood(item) },
+                onQuantityChange = { delta -> onQuantityChange(item, delta) },
                 modifier = Modifier.animateItem(),
             )
         }
@@ -522,15 +563,17 @@ private fun SwipeFoodItemRow(
     nearExpiryDays: Int,
     onClick: () -> Unit,
     onDeleteFood: () -> Unit,
+    onQuantityChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.StartToEnd,
                 SwipeToDismissBoxValue.EndToStart,
                 -> onDeleteFood()
-                SwipeToDismissBoxValue.Settled -> Unit
+                SwipeToDismissBoxValue.StartToEnd,
+                SwipeToDismissBoxValue.Settled,
+                -> Unit
             }
             false
         },
@@ -538,6 +581,8 @@ private fun SwipeFoodItemRow(
     SwipeToDismissBox(
         modifier = modifier,
         state = dismissState,
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
         backgroundContent = {
             val value = dismissState.dismissDirection
             val backgroundColor = if (value == SwipeToDismissBoxValue.Settled) {
@@ -545,14 +590,13 @@ private fun SwipeFoodItemRow(
             } else {
                 MaterialTheme.colorScheme.errorContainer
             }
-            val alignment = if (value == SwipeToDismissBoxValue.EndToStart) Alignment.CenterEnd else Alignment.CenterStart
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(MaterialTheme.shapes.large)
                     .background(backgroundColor)
                     .padding(horizontal = 20.dp),
-                contentAlignment = alignment,
+                contentAlignment = Alignment.CenterEnd,
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
@@ -566,6 +610,8 @@ private fun SwipeFoodItemRow(
             item = item,
             nearExpiryDays = nearExpiryDays,
             onClick = onClick,
+            onQuantityIncrease = { onQuantityChange(1) },
+            onQuantityDecrease = { onQuantityChange(-1) },
         )
     }
 }
@@ -575,6 +621,8 @@ private fun FoodItemRow(
     item: FoodItem,
     nearExpiryDays: Int,
     onClick: () -> Unit,
+    onQuantityIncrease: () -> Unit,
+    onQuantityDecrease: () -> Unit,
 ) {
     val today = LocalDate.now()
     val status = calculateFoodStatus(item.expiryDate, today, nearExpiryDays)
@@ -584,13 +632,14 @@ private fun FoodItemRow(
         expiryDate = item.expiryDate,
         today = today,
     )
+    val cardContainerColor = statusContainerColor(status)
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = cardContainerColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
     ) {
         Row(
@@ -626,6 +675,11 @@ private fun FoodItemRow(
                     if (item.categoryTag.isNotBlank()) {
                         CategoryChip(category = item.categoryTag)
                     }
+                    QuantityStepper(
+                        quantity = item.quantity,
+                        onDecrease = onQuantityDecrease,
+                        onIncrease = onQuantityIncrease,
+                    )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -687,6 +741,52 @@ private fun CategoryChip(category: String) {
 }
 
 @Composable
+private fun QuantityStepper(
+    quantity: Int,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = onDecrease,
+                enabled = quantity > 1,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Remove,
+                    contentDescription = "数量减一",
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Text(
+                text = "x$quantity",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            IconButton(
+                onClick = onIncrease,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "数量加一",
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ExpiryProgressRow(
     progress: ExpiryProgress,
     color: Color,
@@ -709,6 +809,16 @@ private fun statusColor(status: FoodStatus): Color =
         FoodStatus.NearExpiry -> Color(0xFFFFD54F)
         FoodStatus.Expired -> MaterialTheme.colorScheme.error
     }
+
+@Composable
+private fun statusContainerColor(status: FoodStatus): Color {
+    val surface = MaterialTheme.colorScheme.surface
+    return when (status) {
+        FoodStatus.Safe -> surface
+        FoodStatus.NearExpiry -> Color(0xFFFFD54F).copy(alpha = 0.14f).compositeOver(surface)
+        FoodStatus.Expired -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.22f).compositeOver(surface)
+    }
+}
 
 private fun relativeExpiryText(expiryDate: LocalDate, today: LocalDate): String {
     val days = ChronoUnit.DAYS.between(today, expiryDate)

@@ -2,6 +2,7 @@ package com.nowaste.app.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nowaste.app.domain.AppTheme
 import com.nowaste.app.domain.DefaultFoodCategories
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,7 @@ data class SettingsState(
     val smartParsingApiUrl: String = "",
     val smartParsingApiKey: String = "",
     val smartParsingModel: String = "",
+    val theme: AppTheme = AppTheme.FOLLOW_SYSTEM,
 )
 
 class AppSettings(context: Context) {
@@ -95,6 +97,19 @@ class AppSettings(context: Context) {
             preferences.edit().putString(KEY_SMART_PARSING_MODEL, value.trim()).apply()
         }
 
+    var theme: AppTheme
+        get() {
+            val name = preferences.getString(KEY_THEME, AppTheme.FOLLOW_SYSTEM.name)
+            return try {
+                AppTheme.valueOf(name!!)
+            } catch (e: Exception) {
+                AppTheme.FOLLOW_SYSTEM
+            }
+        }
+        set(value) {
+            preferences.edit().putString(KEY_THEME, value.name).apply()
+        }
+
     fun updateReminderTime(hour: Int, minute: Int) {
         preferences.edit()
             .putInt(KEY_REMINDER_HOUR, hour.coerceIn(0, 23))
@@ -133,6 +148,7 @@ class AppSettings(context: Context) {
             smartParsingApiUrl = smartParsingApiUrl,
             smartParsingApiKey = smartParsingApiKey,
             smartParsingModel = smartParsingModel,
+            theme = theme,
         )
 
     fun dispose() {
@@ -156,6 +172,7 @@ class AppSettings(context: Context) {
         private const val KEY_SMART_PARSING_API_URL = "smart_parsing_api_url"
         private const val KEY_SMART_PARSING_API_KEY = "smart_parsing_api_key"
         private const val KEY_SMART_PARSING_MODEL = "smart_parsing_model"
+        private const val KEY_THEME = "app_theme"
         private const val TAG_SEPARATOR = "\n"
     }
 }

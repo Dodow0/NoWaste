@@ -25,6 +25,7 @@ class FoodRepository(
                 categoryTag = input.categoryTag.trim(),
                 note = input.note.trim(),
                 photoUri = input.photoUri.trim(),
+                quantity = input.quantity.coerceAtLeast(1),
                 createdAt = timestamp,
                 updatedAt = timestamp,
             ),
@@ -45,8 +46,17 @@ class FoodRepository(
                 categoryTag = input.categoryTag.trim(),
                 note = input.note.trim(),
                 photoUri = input.photoUri.trim(),
+                quantity = input.quantity.coerceAtLeast(1),
                 updatedAt = now(),
             ),
+        )
+    }
+
+    suspend fun updateFoodItemQuantity(id: Long, quantity: Int) {
+        dao.   updateQuantity(
+            id = id,
+            quantity = quantity.coerceAtLeast(1),
+            updatedAt = now(),
         )
     }
 
