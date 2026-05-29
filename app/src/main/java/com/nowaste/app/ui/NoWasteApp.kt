@@ -197,6 +197,7 @@ fun NoWasteApp(viewModel: FoodViewModel) {
             if (currentState is FoodListUiState.Ready) {
                 SettingsScreen(
                     settings = currentState.settings,
+                    foodItems = currentState.items,
                     onNavigateBack = { navController.popBackStack() },
                     onReminderTimeChange = viewModel::updateReminderTime,
                     onNearExpiryDaysChange = viewModel::updateNearExpiryDays,
@@ -208,6 +209,7 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                     onSmartParsingApiKeyChange = viewModel::updateSmartParsingApiKey,
                     onSmartParsingModelChange = viewModel::updateSmartParsingModel,
                     onThemeChange = viewModel::updateTheme,
+                    onImportFoods = viewModel::saveFoodItems,
                     onTestSmartParsing = viewModel::testSmartParsing,
                 )
             } else {

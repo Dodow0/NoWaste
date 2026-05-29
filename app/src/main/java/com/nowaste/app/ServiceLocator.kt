@@ -19,9 +19,7 @@ object ServiceLocator {
                 AppDatabase::class.java,
                 "nowaste.db",
             )
-                .addMigrations(AppDatabase.MIGRATION_5_6)
                 .fallbackToDestructiveMigration()
-                .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
                 .also { database = it }
         }

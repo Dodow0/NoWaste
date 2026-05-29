@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.MediaStore
 import android.widget.ImageView
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -131,6 +132,7 @@ fun FoodFormScreen(
     var showProductionDatePicker by remember { mutableStateOf(false) }
     var showExpiryDatePicker by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var showDiscardChangesDialog by rememberSaveable(item?.id) { mutableStateOf(false) }
     var showCameraUnavailableDialog by remember { mutableStateOf(false) }
     var showCameraPermissionDeniedDialog by remember { mutableStateOf(false) }
     var showPhotoViewer by remember { mutableStateOf(false) }
@@ -302,6 +304,28 @@ fun FoodFormScreen(
         hasValidOptionalDateInputs &&
         hasValidReminderDays &&
         hasValidQuantity
+    val hasUnsavedChanges =
+        name != item?.name.orEmpty() ||
+            productionDateText != item?.productionDate?.format(FormDateFormatter).orEmpty() ||
+            shelfLifeText != item?.storedShelfLifeText().orEmpty() ||
+            reminderDaysBeforeExpiryText != item?.reminderDaysBeforeExpiry?.toString().orEmpty() ||
+            expiryDateText != item?.expiryDate?.format(FormDateFormatter).orEmpty() ||
+            categoryTag != item?.categoryTag.orEmpty() ||
+            quantityText != (item?.quantity ?: 1).toString() ||
+            note != item?.note.orEmpty() ||
+            photoUri != item?.photoUri.orEmpty()
+
+    fun requestNavigateBack() {
+        if (hasUnsavedChanges) {
+            showDiscardChangesDialog = true
+        } else {
+            onNavigateBack()
+        }
+    }
+
+    BackHandler {
+        requestNavigateBack()
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -309,7 +333,7 @@ fun FoodFormScreen(
             TopAppBar(
                 title = { Text(if (isEditing) "编辑食品" else "添加食品") },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = { requestNavigateBack() }) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "返回",
@@ -646,6 +670,29 @@ fun FoodFormScreen(
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmation = false }) {
                     Text("取消")
+                }
+            },
+        )
+    }
+
+    if (showDiscardChangesDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardChangesDialog = false },
+            title = { Text("放弃未保存内容？") },
+            text = { Text("当前填写的信息还没有保存，退出后这些修改会丢失。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDiscardChangesDialog = false
+                        onNavigateBack()
+                    },
+                ) {
+                    Text("退出", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardChangesDialog = false }) {
+                    Text("继续填写")
                 }
             },
         )
