@@ -1,5 +1,10 @@
 package com.nowaste.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -17,8 +22,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,10 +43,12 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,6 +60,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nowaste.app.domain.AppTheme
@@ -127,25 +139,6 @@ fun SettingsScreen(
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "界面主题",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Button(
-                    onClick = { showThemeDialog = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Palette,
-                        contentDescription = null,
-                    )
-                    Text(
-                        text = "当前主题: ${settings.theme.label}",
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
                     text = "自定义提前进入临期并提醒",
                     style = MaterialTheme.typography.titleMedium,
                 )
@@ -164,6 +157,25 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "界面主题",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Button(
+                    onClick = { showThemeDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Palette,
+                        contentDescription = null,
+                    )
+                    Text(
+                        text = "当前主题: ${settings.theme.label}",
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
             }
             SmartParsingSettings(
                 settings = settings,
@@ -243,10 +255,19 @@ private fun SmartParsingSettings(
     var isTesting by remember { mutableStateOf(false) }
     var testFeedback by remember { mutableStateOf<String?>(null) }
     var testSucceeded by remember { mutableStateOf<Boolean?>(null) }
+    var isExpanded by rememberSaveable { mutableStateOf(false) }
+    var isApiKeyVisible by rememberSaveable { mutableStateOf(false) }
     val canTest = settings.smartParsingApiUrl.isNotBlank() &&
         settings.smartParsingApiKey.isNotBlank() &&
         settings.smartParsingModel.isNotBlank() &&
         !isTesting
+
+    LaunchedEffect(settings.smartParsingEnabled) {
+        if (!settings.smartParsingEnabled) {
+            isExpanded = false
+            isApiKeyVisible = false
+        }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
@@ -275,6 +296,27 @@ private fun SmartParsingSettings(
         }
 
         if (settings.smartParsingEnabled) {
+            Button(
+                onClick = { isExpanded = !isExpanded },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                )
+                Text(
+                    text = if (isExpanded) "收起配置" else "展开配置",
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = settings.smartParsingEnabled && isExpanded,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(
                 value = settings.smartParsingApiUrl,
                 onValueChange = onApiUrlChange,
@@ -290,7 +332,19 @@ private fun SmartParsingSettings(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("API Key") },
                 singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation = if (isApiKeyVisible) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                trailingIcon = {
+                    IconButton(onClick = { isApiKeyVisible = !isApiKeyVisible }) {
+                        Icon(
+                            imageVector = if (isApiKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (isApiKeyVisible) "隐藏 API Key" else "显示 API Key",
+                        )
+                    }
+                },
             )
             OutlinedTextField(
                 value = settings.smartParsingModel,
@@ -338,6 +392,7 @@ private fun SmartParsingSettings(
                         null -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
+            }
             }
         }
     }

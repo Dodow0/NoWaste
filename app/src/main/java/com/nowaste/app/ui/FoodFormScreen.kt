@@ -78,9 +78,6 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.nowaste.app.data.FoodItem
 import com.nowaste.app.domain.BatchPhotoPendingNamePrefix
 import com.nowaste.app.domain.BatchPhotoPendingNote
@@ -105,6 +102,7 @@ fun FoodFormScreen(
     item: FoodItem?,
     onNavigateBack: () -> Unit,
     onPickNameFromPhoto: () -> Unit,
+    onPickDateFromCamera: (DateOcrField) -> Unit,
     categoryTags: List<String> = emptyList(),
     onSave: (FoodItemInput) -> Unit,
     onDelete: (() -> Unit)?,
@@ -129,19 +127,13 @@ fun FoodFormScreen(
     var note by rememberSaveable(item?.id) { mutableStateOf(item?.note.orEmpty()) }
     var photoUri by rememberSaveable(item?.id) { mutableStateOf(item?.photoUri.orEmpty()) }
     var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
-    var pendingFieldOcrPhotoUri by remember { mutableStateOf<Uri?>(null) }
-    var fieldOcrTarget by remember { mutableStateOf<FieldOcrTarget?>(null) }
-    var cameraPermissionAction by remember { mutableStateOf(CameraPermissionAction.FoodPhoto) }
     var launchCameraCapture by remember { mutableStateOf(false) }
-    var launchFieldOcrCapture by remember { mutableStateOf(false) }
     var showProductionDatePicker by remember { mutableStateOf(false) }
     var showExpiryDatePicker by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var showCameraUnavailableDialog by remember { mutableStateOf(false) }
     var showCameraPermissionDeniedDialog by remember { mutableStateOf(false) }
     var showPhotoViewer by remember { mutableStateOf(false) }
-    var isReadingFieldOcr by remember { mutableStateOf(false) }
-    var fieldOcrFeedback by remember { mutableStateOf<String?>(null) }
     val parsedProductionDate = remember(productionDateText) {
         parseProductionDateInput(productionDateText)
     }
@@ -176,58 +168,48 @@ fun FoodFormScreen(
         }
     }
 
-    fun recognizeFieldTextFromPhoto(uri: Uri, target: FieldOcrTarget) {
-        isReadingFieldOcr = true
-        fieldOcrFeedback = "正在识别${target.label}..."
-        try {
-            val image = InputImage.fromFilePath(context, uri)
-            val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
-            recognizer.process(image)
-                .addOnSuccessListener { visionText ->
-                    when (target) {
-                        FieldOcrTarget.ProductionDate -> {
-                            val detectedDate = extractProductionDateFromText(visionText.text)
-                            if (detectedDate != null) {
-                                productionDateText = detectedDate.format(FormDateFormatter)
-                                fieldOcrFeedback = "已识别生产日期：${detectedDate.format(FormDateFormatter)}"
-                            } else {
-                                fieldOcrFeedback = "未识别到生产日期，可手动输入如 2026-05-20。"
-                            }
-                        }
+    val selectedProductionDateState = if (navBackStackEntry != null) {
+        navBackStackEntry.savedStateHandle
+            .getStateFlow(DateOcrField.ProductionDate.savedStateKey, "")
+            .collectAsStateWithLifecycle()
+    } else {
+        remember { mutableStateOf("") }
+    }
+    val selectedProductionDate by selectedProductionDateState
+    LaunchedEffect(selectedProductionDate) {
+        if (selectedProductionDate.isNotBlank()) {
+            productionDateText = selectedProductionDate
+            navBackStackEntry?.savedStateHandle?.set(DateOcrField.ProductionDate.savedStateKey, "")
+        }
+    }
 
-                        FieldOcrTarget.ShelfLife -> {
-                            val detectedShelfLife = extractShelfLifeDurationFromText(visionText.text)
-                            if (detectedShelfLife != null) {
-                                shelfLifeText = detectedShelfLife.toDisplayText()
-                                fieldOcrFeedback = "已识别保质期：${detectedShelfLife.toDisplayText()}"
-                            } else {
-                                fieldOcrFeedback = "未识别到保质期，可手动输入如 180天、35日、12个月。"
-                            }
-                        }
+    val selectedShelfLifeState = if (navBackStackEntry != null) {
+        navBackStackEntry.savedStateHandle
+            .getStateFlow(DateOcrField.ShelfLife.savedStateKey, "")
+            .collectAsStateWithLifecycle()
+    } else {
+        remember { mutableStateOf("") }
+    }
+    val selectedShelfLife by selectedShelfLifeState
+    LaunchedEffect(selectedShelfLife) {
+        if (selectedShelfLife.isNotBlank()) {
+            shelfLifeText = selectedShelfLife
+            navBackStackEntry?.savedStateHandle?.set(DateOcrField.ShelfLife.savedStateKey, "")
+        }
+    }
 
-                        FieldOcrTarget.ExpiryDate -> {
-                            val detectedDate = extractExpiryDateFromText(visionText.text)
-                            if (detectedDate != null) {
-                                expiryDateText = detectedDate.format(FormDateFormatter)
-                                fieldOcrFeedback = "已识别到期日：${detectedDate.format(FormDateFormatter)}"
-                            } else {
-                                fieldOcrFeedback = "未识别到到期日，可手动输入如 2026-05-20。"
-                            }
-                        }
-                    }
-                }
-                .addOnFailureListener {
-                    fieldOcrFeedback = "${target.label}识别失败，可手动输入。"
-                }
-                .addOnCompleteListener {
-                    isReadingFieldOcr = false
-                    recognizer.close()
-                    deleteFoodPhotoUri(context, uri)
-                }
-        } catch (_: Exception) {
-            isReadingFieldOcr = false
-            fieldOcrFeedback = "${target.label}识别失败，可手动输入。"
-            deleteFoodPhotoUri(context, uri)
+    val selectedExpiryDateState = if (navBackStackEntry != null) {
+        navBackStackEntry.savedStateHandle
+            .getStateFlow(DateOcrField.ExpiryDate.savedStateKey, "")
+            .collectAsStateWithLifecycle()
+    } else {
+        remember { mutableStateOf("") }
+    }
+    val selectedExpiryDate by selectedExpiryDateState
+    LaunchedEffect(selectedExpiryDate) {
+        if (selectedExpiryDate.isNotBlank()) {
+            expiryDateText = selectedExpiryDate
+            navBackStackEntry?.savedStateHandle?.set(DateOcrField.ExpiryDate.savedStateKey, "")
         }
     }
 
@@ -244,28 +226,11 @@ fun FoodFormScreen(
         pendingPhotoUri = null
     }
 
-    val fieldOcrCameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        val uri = pendingFieldOcrPhotoUri
-        val target = fieldOcrTarget
-        if (result.resultCode == Activity.RESULT_OK && uri != null && target != null) {
-            recognizeFieldTextFromPhoto(uri, target)
-        } else if (uri != null) {
-            deleteFoodPhotoUri(context, uri)
-        }
-        pendingFieldOcrPhotoUri = null
-        fieldOcrTarget = null
-    }
-
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
-            when (cameraPermissionAction) {
-                CameraPermissionAction.FoodPhoto -> launchCameraCapture = true
-                CameraPermissionAction.FieldOcr -> launchFieldOcrCapture = true
-            }
+            launchCameraCapture = true
         } else {
             showCameraPermissionDeniedDialog = true
         }
@@ -296,33 +261,6 @@ fun FoodFormScreen(
         }
     }
 
-    LaunchedEffect(launchFieldOcrCapture) {
-        if (launchFieldOcrCapture) {
-            launchFieldOcrCapture = false
-            val uri = createFoodPhotoUri(context)
-            pendingFieldOcrPhotoUri = uri
-            try {
-                fieldOcrCameraLauncher.launch(
-                    Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                        putExtra(MediaStore.EXTRA_OUTPUT, uri)
-                        addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    },
-                )
-            } catch (_: ActivityNotFoundException) {
-                pendingFieldOcrPhotoUri = null
-                fieldOcrTarget = null
-                deleteFoodPhotoUri(context, uri)
-                showCameraUnavailableDialog = true
-            } catch (_: SecurityException) {
-                pendingFieldOcrPhotoUri = null
-                fieldOcrTarget = null
-                deleteFoodPhotoUri(context, uri)
-                showCameraPermissionDeniedDialog = true
-            }
-        }
-    }
-
     val isEditing = item != null
     LaunchedEffect(calculatedExpiryDate) {
         if (calculatedExpiryDate != null) {
@@ -331,27 +269,12 @@ fun FoodFormScreen(
     }
 
     fun requestFoodPhotoCapture() {
-        cameraPermissionAction = CameraPermissionAction.FoodPhoto
         val hasCameraPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.CAMERA,
         ) == PackageManager.PERMISSION_GRANTED
         if (hasCameraPermission) {
             launchCameraCapture = true
-        } else {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
-
-    fun requestFieldOcrCapture(target: FieldOcrTarget) {
-        fieldOcrTarget = target
-        cameraPermissionAction = CameraPermissionAction.FieldOcr
-        val hasCameraPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.CAMERA,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (hasCameraPermission) {
-            launchFieldOcrCapture = true
         } else {
             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
@@ -451,7 +374,7 @@ fun FoodFormScreen(
                                     contentDescription = "选择生产日期",
                                 )
                             }
-                            IconButton(onClick = { requestFieldOcrCapture(FieldOcrTarget.ProductionDate) }) {
+                            IconButton(onClick = { onPickDateFromCamera(DateOcrField.ProductionDate) }) {
                                 Icon(
                                     imageVector = Icons.Default.PhotoCamera,
                                     contentDescription = "拍照识别生产日期",
@@ -468,7 +391,7 @@ fun FoodFormScreen(
                     label = "保质期（可选，配合生产日期自动计算）",
                     singleLine = true,
                     trailingIcon = {
-                        IconButton(onClick = { requestFieldOcrCapture(FieldOcrTarget.ShelfLife) }) {
+                            IconButton(onClick = { onPickDateFromCamera(DateOcrField.ShelfLife) }) {
                             Icon(
                                 imageVector = Icons.Default.PhotoCamera,
                                 contentDescription = "拍照识别保质期",
@@ -491,7 +414,7 @@ fun FoodFormScreen(
                                     contentDescription = "选择到期日",
                                 )
                             }
-                            IconButton(onClick = { requestFieldOcrCapture(FieldOcrTarget.ExpiryDate) }) {
+                            IconButton(onClick = { onPickDateFromCamera(DateOcrField.ExpiryDate) }) {
                                 Icon(
                                     imageVector = Icons.Default.PhotoCamera,
                                     contentDescription = "拍照识别到期日",
@@ -510,20 +433,6 @@ fun FoodFormScreen(
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                    )
-                }
-                if (isReadingFieldOcr) {
-                    Text(
-                        text = "正在识别照片文字...",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                fieldOcrFeedback?.let { feedback ->
-                    Text(
-                        text = feedback,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -919,17 +828,6 @@ private fun FoodItem.storedShelfLifeText(): String? {
     val amount = shelfLifeAmount ?: return null
     val unit = shelfLifeUnit ?: return null
     return ShelfLifeDuration(amount, unit).toDisplayText()
-}
-
-private enum class FieldOcrTarget(val label: String) {
-    ProductionDate("生产日期"),
-    ShelfLife("保质期"),
-    ExpiryDate("到期日"),
-}
-
-private enum class CameraPermissionAction {
-    FoodPhoto,
-    FieldOcr,
 }
 
 private data class DateInputFeedback(

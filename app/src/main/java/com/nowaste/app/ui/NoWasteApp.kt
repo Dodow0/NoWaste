@@ -22,9 +22,11 @@ private object Routes {
     const val BatchPhotoCapture = "photos/batch"
     const val BatchSmartParse = "smart/batch"
     const val TextPicker = "text-picker"
+    const val DateOcr = "date-ocr/{field}"
     const val Settings = "settings"
 
     fun editFood(itemId: Long): String = "foods/$itemId"
+    fun dateOcr(field: DateOcrField): String = "date-ocr/${field.routeValue}"
 }
 
 @Composable
@@ -78,6 +80,7 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                 item = null,
                 onNavigateBack = { navController.popBackStack() },
                 onPickNameFromPhoto = { navController.navigate(Routes.TextPicker) },
+                onPickDateFromCamera = { field -> navController.navigate(Routes.dateOcr(field)) },
                 categoryTags = settings?.categoryTags.orEmpty(),
                 onSave = { input ->
                     viewModel.saveFoodItem(
@@ -113,6 +116,7 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                     )
                 },
                 onPickNameFromPhoto = { navController.navigate(Routes.TextPicker) },
+                onPickDateFromCamera = { field -> navController.navigate(Routes.dateOcr(field)) },
                 navBackStackEntry = backStackEntry,
             )
         }
@@ -168,6 +172,26 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                 },
             )
         }
+        composable(
+            route = Routes.DateOcr,
+            arguments = listOf(navArgument("field") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val field = DateOcrField.fromRoute(backStackEntry.arguments?.getString("field"))
+            if (field == null) {
+                MissingFoodScreen(onNavigateBack = { navController.popBackStack() })
+            } else {
+                DateOcrCameraScreen(
+                    field = field,
+                    onNavigateBack = { navController.popBackStack() },
+                    onValueSelected = { value ->
+                        navController.previousBackStackEntry
+                            ?.savedStateHandle
+                            ?.set(field.savedStateKey, value)
+                        navController.popBackStack()
+                    },
+                )
+            }
+        }
         composable(Routes.Settings) {
             val currentState = uiState
             if (currentState is FoodListUiState.Ready) {
@@ -201,6 +225,7 @@ private fun FoodEditRoute(
     onSave: (FoodItemInput) -> Unit,
     onDelete: () -> Unit,
     onPickNameFromPhoto: () -> Unit,
+    onPickDateFromCamera: (DateOcrField) -> Unit,
     navBackStackEntry: NavBackStackEntry,
 ) {
     when (uiState) {
@@ -214,6 +239,7 @@ private fun FoodEditRoute(
                     item = item,
                     onNavigateBack = onNavigateBack,
                     onPickNameFromPhoto = onPickNameFromPhoto,
+                    onPickDateFromCamera = onPickDateFromCamera,
                     categoryTags = uiState.settings.categoryTags,
                     onSave = onSave,
                     onDelete = onDelete,

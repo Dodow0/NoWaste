@@ -767,7 +767,7 @@ private fun QuantityStepper(
                 )
             }
             Text(
-                text = "x$quantity",
+                text = "$quantity",
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
