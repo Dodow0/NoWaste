@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Upload
@@ -36,9 +37,13 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -200,88 +205,57 @@ fun SettingsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Text(
-                text = "每日提醒时间",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Button(
-                onClick = { showTimePicker = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Schedule,
-                    contentDescription = null,
+            SettingsGroupCard(title = "常规") {
+                ReminderTimeSettingItem(
+                    hour = settings.reminderHour,
+                    minute = settings.reminderMinute,
+                    onClick = { showTimePicker = true },
                 )
-                Text(
-                    text = "提醒时间 ${settings.reminderHour.toString().padStart(2, '0')}:${settings.reminderMinute.toString().padStart(2, '0')}",
-                    modifier = Modifier.padding(start = 8.dp),
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                NearExpiryDaysSetting(
+                    days = settings.nearExpiryDays,
+                    onDaysChange = onNearExpiryDaysChange,
                 )
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "自定义提前进入临期并提醒",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                OutlinedTextField(
-                    value = settings.nearExpiryDays.toString(),
-                    onValueChange = { value ->
-                        value.toIntOrNull()?.let(onNearExpiryDaysChange)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("提前天数") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
-                Text(
-                    text = "${AppSettings.MIN_NEAR_EXPIRY_DAYS}-${AppSettings.MAX_NEAR_EXPIRY_DAYS} 天，默认 ${AppSettings.DEFAULT_NEAR_EXPIRY_DAYS} 天",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "界面主题",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Button(
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                ThemeSettingItem(
+                    theme = settings.theme,
                     onClick = { showThemeDialog = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Palette,
-                        contentDescription = null,
-                    )
-                    Text(
-                        text = "当前主题: ${settings.theme.label}",
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
+                )
             }
-            SmartParsingSettings(
-                settings = settings,
-                onEnabledChange = onSmartParsingEnabledChange,
-                onApiUrlChange = onSmartParsingApiUrlChange,
-                onApiKeyChange = onSmartParsingApiKeyChange,
-                onModelChange = onSmartParsingModelChange,
-                onTestSmartParsing = onTestSmartParsing,
-            )
-            CategoryTagSettings(
-                tags = settings.categoryTags,
-                newCategory = newCategory,
-                onNewCategoryChange = { newCategory = it },
-                onAddCategory = ::submitNewCategory,
-                onMoveCategory = onMoveCategoryTag,
-                onDeleteCategoryRequest = { pendingDeleteCategory = it },
-            )
-            DataManagementSettings(
-                itemCount = foodItems.size,
-                feedback = dataFeedback,
-                onExportJson = { exportData(ExportFormat.Json) },
-                onExportCsv = { exportData(ExportFormat.Csv) },
-                onImport = { importLauncher.launch(arrayOf("application/json", "text/csv", "text/*", "*/*")) },
-            )
+
+            SettingsGroupCard(title = "智能解析") {
+                SmartParsingSettings(
+                    settings = settings,
+                    onEnabledChange = onSmartParsingEnabledChange,
+                    onApiUrlChange = onSmartParsingApiUrlChange,
+                    onApiKeyChange = onSmartParsingApiKeyChange,
+                    onModelChange = onSmartParsingModelChange,
+                    onTestSmartParsing = onTestSmartParsing,
+                )
+            }
+
+            SettingsGroupCard(title = "食品标签") {
+                CategoryTagSettings(
+                    tags = settings.categoryTags,
+                    newCategory = newCategory,
+                    onNewCategoryChange = { newCategory = it },
+                    onAddCategory = ::submitNewCategory,
+                    onMoveCategory = onMoveCategoryTag,
+                    onDeleteCategoryRequest = { pendingDeleteCategory = it },
+                )
+            }
+
+            SettingsGroupCard(title = "数据管理") {
+                DataManagementSettings(
+                    itemCount = foodItems.size,
+                    feedback = dataFeedback,
+                    onExportJson = { exportData(ExportFormat.Json) },
+                    onExportCsv = { exportData(ExportFormat.Csv) },
+                    onImport = { importLauncher.launch(arrayOf("application/json", "text/csv", "text/*", "*/*")) },
+                )
+            }
         }
     }
 
@@ -333,6 +307,114 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun SettingsGroupCard(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = title,
+            modifier = Modifier.padding(horizontal = 4.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+            ),
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun ReminderTimeSettingItem(
+    hour: Int,
+    minute: Int,
+    onClick: () -> Unit,
+) {
+    val timeText = "${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}"
+    ListItem(
+        modifier = Modifier.clickable(onClick = onClick),
+        leadingContent = {
+            Icon(
+                imageVector = Icons.Default.Schedule,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        headlineContent = { Text("每日提醒时间") },
+        supportingContent = { Text("当前 $timeText") },
+        trailingContent = {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+            )
+        },
+    )
+}
+
+@Composable
+private fun NearExpiryDaysSetting(
+    days: Int,
+    onDaysChange: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "临期提醒提前量",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        OutlinedTextField(
+            value = days.toString(),
+            onValueChange = { value ->
+                value.toIntOrNull()?.let(onDaysChange)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("提前天数") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
+        Text(
+            text = "${AppSettings.MIN_NEAR_EXPIRY_DAYS}-${AppSettings.MAX_NEAR_EXPIRY_DAYS} 天，默认 ${AppSettings.DEFAULT_NEAR_EXPIRY_DAYS} 天",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ThemeSettingItem(
+    theme: AppTheme,
+    onClick: () -> Unit,
+) {
+    ListItem(
+        modifier = Modifier.clickable(onClick = onClick),
+        leadingContent = {
+            Icon(
+                imageVector = Icons.Default.Palette,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        headlineContent = { Text("界面主题") },
+        supportingContent = { Text("当前 ${theme.label}") },
+        trailingContent = {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+            )
+        },
+    )
+}
+
+@Composable
 private fun SmartParsingSettings(
     settings: SettingsState,
     onEnabledChange: (Boolean) -> Unit,
@@ -358,7 +440,12 @@ private fun SmartParsingSettings(
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -369,7 +456,7 @@ private fun SmartParsingSettings(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = "智能解析",
+                    text = "批量智能录入",
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
@@ -385,19 +472,12 @@ private fun SmartParsingSettings(
         }
 
         if (settings.smartParsingEnabled) {
-            Button(
-                onClick = { isExpanded = !isExpanded },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null,
-                )
-                Text(
-                    text = if (isExpanded) "收起配置" else "展开配置",
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-            }
+            CollapsibleSectionHeader(
+                title = "解析配置",
+                subtitle = "API 地址、密钥和模型名称。",
+                isExpanded = isExpanded,
+                onToggle = { isExpanded = !isExpanded },
+            )
         }
 
         AnimatedVisibility(
@@ -406,82 +486,82 @@ private fun SmartParsingSettings(
             exit = fadeOut() + shrinkVertically(),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedTextField(
-                value = settings.smartParsingApiUrl,
-                onValueChange = onApiUrlChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("API URL") },
-                placeholder = { Text("https://api.deepseek.com/chat/completions") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            )
-            OutlinedTextField(
-                value = settings.smartParsingApiKey,
-                onValueChange = onApiKeyChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("API Key") },
-                singleLine = true,
-                visualTransformation = if (isApiKeyVisible) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation()
-                },
-                trailingIcon = {
-                    IconButton(onClick = { isApiKeyVisible = !isApiKeyVisible }) {
-                        Icon(
-                            imageVector = if (isApiKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = if (isApiKeyVisible) "隐藏 API Key" else "显示 API Key",
-                        )
-                    }
-                },
-            )
-            OutlinedTextField(
-                value = settings.smartParsingModel,
-                onValueChange = onModelChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("模型名称") },
-                placeholder = { Text("deepseek-chat") },
-                singleLine = true,
-            )
-            Text(
-                text = "请填写兼容 OpenAI Chat Completions 的完整接口地址。App 只发送你输入的文字。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Button(
-                onClick = {
-                    isTesting = true
-                    testSucceeded = null
-                    testFeedback = "正在测试连接..."
-                    onTestSmartParsing(
-                        { message ->
-                            isTesting = false
-                            testSucceeded = true
-                            testFeedback = message
-                        },
-                        { message ->
-                            isTesting = false
-                            testSucceeded = false
-                            testFeedback = message
-                        },
-                    )
-                },
-                enabled = canTest,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (isTesting) "正在测试..." else "测试连接")
-            }
-            testFeedback?.let { feedback ->
-                Text(
-                    text = feedback,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when (testSucceeded) {
-                        true -> MaterialTheme.colorScheme.primary
-                        false -> MaterialTheme.colorScheme.error
-                        null -> MaterialTheme.colorScheme.onSurfaceVariant
+                OutlinedTextField(
+                    value = settings.smartParsingApiUrl,
+                    onValueChange = onApiUrlChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("API URL") },
+                    placeholder = { Text("https://api.deepseek.com/chat/completions") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+                OutlinedTextField(
+                    value = settings.smartParsingApiKey,
+                    onValueChange = onApiKeyChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("API Key") },
+                    singleLine = true,
+                    visualTransformation = if (isApiKeyVisible) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { isApiKeyVisible = !isApiKeyVisible }) {
+                            Icon(
+                                imageVector = if (isApiKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (isApiKeyVisible) "隐藏 API Key" else "显示 API Key",
+                            )
+                        }
                     },
                 )
-            }
+                OutlinedTextField(
+                    value = settings.smartParsingModel,
+                    onValueChange = onModelChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("模型名称") },
+                    placeholder = { Text("deepseek-chat") },
+                    singleLine = true,
+                )
+                Text(
+                    text = "请填写兼容 OpenAI Chat Completions 的完整接口地址。App 只发送你输入的文字。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = {
+                        isTesting = true
+                        testSucceeded = null
+                        testFeedback = "正在测试连接..."
+                        onTestSmartParsing(
+                            { message ->
+                                isTesting = false
+                                testSucceeded = true
+                                testFeedback = message
+                            },
+                            { message ->
+                                isTesting = false
+                                testSucceeded = false
+                                testFeedback = message
+                            },
+                        )
+                    },
+                    enabled = canTest,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (isTesting) "正在测试..." else "测试连接")
+                }
+                testFeedback?.let { feedback ->
+                    Text(
+                        text = feedback,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when (testSucceeded) {
+                            true -> MaterialTheme.colorScheme.primary
+                            false -> MaterialTheme.colorScheme.error
+                            null -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
             }
         }
     }
@@ -497,9 +577,14 @@ private fun DataManagementSettings(
 ) {
     var isExpanded by rememberSaveable { mutableStateOf(false) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         CollapsibleSectionHeader(
-            title = "数据管理",
+            title = "导入与导出",
             subtitle = "导入或导出食品记录。",
             isExpanded = isExpanded,
             onToggle = { isExpanded = !isExpanded },
@@ -634,9 +719,14 @@ private fun CategoryTagSettings(
     val latestOnMoveCategory by rememberUpdatedState(onMoveCategory)
     val moveThreshold = with(LocalDensity.current) { 52.dp.toPx() }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         CollapsibleSectionHeader(
-            title = "食品标签",
+            title = "标签列表",
             subtitle = "管理主页筛选和表单候选标签。",
             isExpanded = isExpanded,
             onToggle = { isExpanded = !isExpanded },
