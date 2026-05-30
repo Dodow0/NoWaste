@@ -56,13 +56,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,6 +70,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,12 +79,14 @@ import com.nowaste.app.domain.ExpiryProgress
 import com.nowaste.app.domain.FoodStatus
 import com.nowaste.app.domain.calculateExpiryProgress
 import com.nowaste.app.domain.calculateFoodStatus
-import com.nowaste.app.domain.filterFoodItems
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import kotlin.math.max
+import kotlin.math.min
 
 private val DateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+private val SwipeDeleteMinThreshold = 96.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,27 +99,12 @@ fun FoodListScreen(
     onFoodClick: (FoodItem) -> Unit,
     onDeleteFood: (FoodItem) -> Unit,
     onQuantityChange: (FoodItem, Int) -> Unit,
+    onQueryChange: (String) -> Unit,
+    onCategorySelected: (String?) -> Unit,
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
-    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<FoodItem?>(null) }
     val listState = rememberLazyListState()
     var isSpeedDialOpen by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(listState) {
-        var previousIndex = listState.firstVisibleItemIndex
-        var previousOffset = listState.firstVisibleItemScrollOffset
-
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .collect { (index, offset) ->
-                val scrollingDown = index > previousIndex || (index == previousIndex && offset > previousOffset)
-                if (scrollingDown) {
-                    isSpeedDialOpen = false
-                }
-                previousIndex = index
-                previousOffset = offset
-            }
-    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -170,30 +156,29 @@ fun FoodListScreen(
                     (uiState.settings.categoryTags + uiState.items.map { it.categoryTag }.filter { it.isNotBlank() })
                         .distinct()
                 }
-                val filteredItems = filterFoodItems(uiState.items, query, selectedCategory)
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding),
                 ) {
                     ListControls(
-                        query = query,
-                        onQueryChange = { query = it },
-                        selectedCategory = selectedCategory,
+                        query = uiState.query,
+                        onQueryChange = onQueryChange,
+                        selectedCategory = uiState.selectedCategory,
                         categories = categoryOptions,
-                        onCategorySelected = { selectedCategory = it },
+                        onCategorySelected = onCategorySelected,
                     )
                     if (uiState.items.isEmpty()) {
                         EmptyFoodList(
                             modifier = Modifier.weight(1f),
                         )
-                    } else if (filteredItems.isEmpty()) {
+                    } else if (uiState.filteredItems.isEmpty()) {
                         EmptyFilteredFoodList(
                             modifier = Modifier.weight(1f),
                         )
                     } else {
                         FoodList(
-                            items = filteredItems,
+                            items = uiState.filteredItems,
                             nearExpiryDays = uiState.settings.nearExpiryDays,
                             listState = listState,
                             onFoodClick = onFoodClick,
@@ -534,6 +519,8 @@ private fun FoodList(
     onQuantityChange: (FoodItem, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val today = LocalDate.now()
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         state = listState,
@@ -547,6 +534,7 @@ private fun FoodList(
             SwipeFoodItemRow(
                 item = item,
                 nearExpiryDays = nearExpiryDays,
+                today = today,
                 onClick = { onFoodClick(item) },
                 onDeleteFood = { onDeleteFood(item) },
                 onQuantityChange = { delta -> onQuantityChange(item, delta) },
@@ -561,12 +549,21 @@ private fun FoodList(
 private fun SwipeFoodItemRow(
     item: FoodItem,
     nearExpiryDays: Int,
+    today: LocalDate,
     onClick: () -> Unit,
     onDeleteFood: () -> Unit,
     onQuantityChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val density = LocalDensity.current
+    val swipeDeleteMinThresholdPx = with(density) { SwipeDeleteMinThreshold.toPx() }
     val dismissState = rememberSwipeToDismissBoxState(
+        positionalThreshold = { totalDistance ->
+            min(
+                max(swipeDeleteMinThresholdPx, totalDistance * 0.45f),
+                totalDistance * 0.85f,
+            )
+        },
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.EndToStart,
@@ -609,6 +606,7 @@ private fun SwipeFoodItemRow(
         FoodItemRow(
             item = item,
             nearExpiryDays = nearExpiryDays,
+            today = today,
             onClick = onClick,
             onQuantityIncrease = { onQuantityChange(1) },
             onQuantityDecrease = { onQuantityChange(-1) },
@@ -620,11 +618,11 @@ private fun SwipeFoodItemRow(
 private fun FoodItemRow(
     item: FoodItem,
     nearExpiryDays: Int,
+    today: LocalDate,
     onClick: () -> Unit,
     onQuantityIncrease: () -> Unit,
     onQuantityDecrease: () -> Unit,
 ) {
-    val today = LocalDate.now()
     val status = calculateFoodStatus(item.expiryDate, today, nearExpiryDays)
     val statusColor = statusColor(status)
     val progress = calculateExpiryProgress(

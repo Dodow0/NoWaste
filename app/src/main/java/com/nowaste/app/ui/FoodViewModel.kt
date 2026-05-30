@@ -9,6 +9,7 @@ import com.nowaste.app.domain.AppTheme
 import com.nowaste.app.domain.BatchPhotoPendingNamePrefix
 import com.nowaste.app.domain.BatchPhotoPendingNote
 import com.nowaste.app.domain.FoodItemInput
+import com.nowaste.app.domain.filterFoodItems
 import com.nowaste.app.network.SmartFoodParseConfig
 import com.nowaste.app.network.SmartFoodParseResult
 import com.nowaste.app.network.SmartFoodTextParser
@@ -17,6 +18,7 @@ import com.nowaste.app.settings.AppSettings
 import com.nowaste.app.settings.SettingsState
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -31,6 +33,9 @@ sealed interface FoodListUiState {
     data class Ready(
         val items: List<FoodItem>,
         val settings: SettingsState,
+        val filteredItems: List<FoodItem>,
+        val query: String,
+        val selectedCategory: String?,
     ) : FoodListUiState
 }
 
@@ -40,12 +45,25 @@ class FoodViewModel(
     private val appContext: Context,
     private val smartFoodTextParser: SmartFoodTextParser = SmartFoodTextParser(),
 ) : ViewModel() {
+    private val query = MutableStateFlow("")
+    private val selectedCategory = MutableStateFlow<String?>(null)
+
     val foodListUiState: StateFlow<FoodListUiState> =
         combine(
             repository.observeFoodItemsSortedByExpiry(),
             settings.state,
-        ) { items, settingsState ->
-            FoodListUiState.Ready(items, settingsState)
+            query,
+            selectedCategory,
+        ) { items, settingsState, currentQuery, currentCategory ->
+            withContext(Dispatchers.Default) {
+                FoodListUiState.Ready(
+                    items = items,
+                    settings = settingsState,
+                    filteredItems = filterFoodItems(items, currentQuery, currentCategory),
+                    query = currentQuery,
+                    selectedCategory = currentCategory,
+                )
+            }
         }
             .map<FoodListUiState.Ready, FoodListUiState> { it }
             .stateIn(
@@ -53,6 +71,14 @@ class FoodViewModel(
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue = FoodListUiState.Loading,
             )
+
+    fun updateSearchQuery(query: String) {
+        this.query.value = query
+    }
+
+    fun updateSelectedCategory(category: String?) {
+        selectedCategory.value = category
+    }
 
     fun saveFoodItem(
         id: Long?,

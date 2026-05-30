@@ -72,6 +72,8 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                 onFoodClick = { item -> navController.navigate(Routes.editFood(item.id)) },
                 onDeleteFood = { item -> viewModel.deleteFoodItem(item.id) {} },
                 onQuantityChange = viewModel::changeFoodItemQuantity,
+                onQueryChange = viewModel::updateSearchQuery,
+                onCategorySelected = viewModel::updateSelectedCategory,
             )
         }
         composable(Routes.AddFood) { entry ->
