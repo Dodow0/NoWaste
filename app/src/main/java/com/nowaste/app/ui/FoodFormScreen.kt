@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.MediaStore
-import android.widget.ImageView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,12 +72,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
+import androidx.compose.ui.layout.ContentScale
 import com.nowaste.app.data.FoodItem
 import com.nowaste.app.domain.BatchPhotoPendingNamePrefix
 import com.nowaste.app.domain.BatchPhotoPendingNote
@@ -136,6 +135,8 @@ fun FoodFormScreen(
     var showCameraUnavailableDialog by remember { mutableStateOf(false) }
     var showCameraPermissionDeniedDialog by remember { mutableStateOf(false) }
     var showPhotoViewer by remember { mutableStateOf(false) }
+    var hasEditedExpiryDate by rememberSaveable(item?.id) { mutableStateOf(false) }
+    var isSaving by rememberSaveable(item?.id) { mutableStateOf(false) }
     val parsedProductionDate = remember(productionDateText) {
         parseProductionDateInput(productionDateText)
     }
@@ -210,6 +211,7 @@ fun FoodFormScreen(
     val selectedExpiryDate by selectedExpiryDateState
     LaunchedEffect(selectedExpiryDate) {
         if (selectedExpiryDate.isNotBlank()) {
+            hasEditedExpiryDate = true
             expiryDateText = selectedExpiryDate
             navBackStackEntry?.savedStateHandle?.set(DateOcrField.ExpiryDate.savedStateKey, "")
         }
@@ -264,8 +266,8 @@ fun FoodFormScreen(
     }
 
     val isEditing = item != null
-    LaunchedEffect(calculatedExpiryDate) {
-        if (calculatedExpiryDate != null) {
+    LaunchedEffect(calculatedExpiryDate, hasEditedExpiryDate) {
+        if (calculatedExpiryDate != null && !hasEditedExpiryDate) {
             expiryDateText = calculatedExpiryDate.format(FormDateFormatter)
         }
     }
@@ -316,6 +318,7 @@ fun FoodFormScreen(
             photoUri != item?.photoUri.orEmpty()
 
     fun requestNavigateBack() {
+        if (isSaving) return
         if (hasUnsavedChanges) {
             showDiscardChangesDialog = true
         } else {
@@ -426,7 +429,10 @@ fun FoodFormScreen(
                 )
                 SoftTextField(
                     value = expiryDateText,
-                    onValueChange = { expiryDateText = it },
+                    onValueChange = {
+                        hasEditedExpiryDate = true
+                        expiryDateText = it
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     label = "到期日（必填）",
                     singleLine = true,
@@ -561,7 +567,9 @@ fun FoodFormScreen(
 
             Button(
                 onClick = {
+                    if (isSaving) return@Button
                     val expiryDate = parsedExpiryDate ?: return@Button
+                    isSaving = true
                     val cleanNote = if (
                         item?.note == BatchPhotoPendingNote &&
                         note == BatchPhotoPendingNote &&
@@ -586,7 +594,7 @@ fun FoodFormScreen(
                         ),
                     )
                 },
-                enabled = canSave,
+                enabled = canSave && !isSaving,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(
@@ -594,7 +602,7 @@ fun FoodFormScreen(
                     contentDescription = null,
                 )
                 Text(
-                    text = "保存",
+                    text = if (isSaving) "保存中..." else "保存",
                     modifier = Modifier.padding(start = 8.dp),
                 )
             }
@@ -639,6 +647,7 @@ fun FoodFormScreen(
                 TextButton(
                     onClick = {
                         datePickerState.selectedDateMillis?.let {
+                            hasEditedExpiryDate = true
                             expiryDateText = it.toLocalDate().format(FormDateFormatter)
                         }
                         showExpiryDatePicker = false
@@ -933,16 +942,11 @@ private fun PhotoPreview(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AndroidView(
+    SampledPhotoImage(
+        photoUri = photoUri,
+        contentDescription = "食品照片",
         modifier = modifier.clickable(onClick = onClick),
-        factory = { context ->
-            ImageView(context).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-            }
-        },
-        update = { imageView ->
-            imageView.setImageURI(Uri.parse(photoUri))
-        },
+        contentScale = ContentScale.Crop,
     )
 }
 
@@ -974,7 +978,9 @@ private fun PhotoViewerDialog(
                 .fillMaxSize()
                 .background(Color.Black),
         ) {
-            AndroidView(
+            FullscreenSampledPhotoImage(
+                photoUri = photoUri,
+                contentDescription = "食品照片",
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer(
@@ -984,14 +990,7 @@ private fun PhotoViewerDialog(
                         translationY = offsetY,
                     )
                     .transformable(transformableState),
-                factory = { context ->
-                    ImageView(context).apply {
-                        scaleType = ImageView.ScaleType.FIT_CENTER
-                    }
-                },
-                update = { imageView ->
-                    imageView.setImageURI(Uri.parse(photoUri))
-                },
+                contentScale = ContentScale.Fit,
             )
             TextButton(
                 onClick = onDismiss,

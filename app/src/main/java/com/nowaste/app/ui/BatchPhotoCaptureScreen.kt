@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.MediaStore
-import android.widget.ImageView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -52,9 +51,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.nowaste.app.photos.createFoodPhotoUri
 import com.nowaste.app.photos.deleteFoodPhotoUri
@@ -265,18 +264,13 @@ private fun PhotoCapturePreview(
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
     ) {
         Box {
-            AndroidView(
+            SampledPhotoImage(
+                photoUri = photoUri,
+                contentDescription = "已拍摄食品照片",
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(MaterialTheme.shapes.large),
-                factory = { context ->
-                    ImageView(context).apply {
-                        scaleType = ImageView.ScaleType.CENTER_CROP
-                    }
-                },
-                update = { imageView ->
-                    imageView.setImageURI(Uri.parse(photoUri))
-                },
+                contentScale = ContentScale.Crop,
             )
             IconButton(
                 onClick = onDelete,

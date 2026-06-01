@@ -530,6 +530,7 @@ private fun FoodList(
         items(
             items = items,
             key = { it.id },
+            contentType = { "foodItem" },
         ) { item ->
             SwipeFoodItemRow(
                 item = item,
@@ -538,7 +539,6 @@ private fun FoodList(
                 onClick = { onFoodClick(item) },
                 onDeleteFood = { onDeleteFood(item) },
                 onQuantityChange = { delta -> onQuantityChange(item, delta) },
-                modifier = Modifier.animateItem(),
             )
         }
     }
@@ -623,18 +623,25 @@ private fun FoodItemRow(
     onQuantityIncrease: () -> Unit,
     onQuantityDecrease: () -> Unit,
 ) {
-    val status = calculateFoodStatus(item.expiryDate, today, nearExpiryDays)
+    val status = remember(item.expiryDate, today, nearExpiryDays) {
+        calculateFoodStatus(item.expiryDate, today, nearExpiryDays)
+    }
     val statusColor = statusColor(status)
-    val progress = calculateExpiryProgress(
-        createdDate = item.createdAt.toLocalDate(),
-        expiryDate = item.expiryDate,
-        today = today,
-    )
+    val progress = remember(item.createdAt, item.expiryDate, today) {
+        calculateExpiryProgress(
+            createdDate = item.createdAt.toLocalDate(),
+            expiryDate = item.expiryDate,
+            today = today,
+        )
+    }
+    val expiryDateText = remember(item.expiryDate) { item.expiryDate.format(DateFormatter) }
+    val relativeExpiryText = remember(item.expiryDate, today) { relativeExpiryText(item.expiryDate, today) }
     val cardContainerColor = statusContainerColor(status)
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(MaterialTheme.shapes.large)
             .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = cardContainerColor),
@@ -685,7 +692,7 @@ private fun FoodItemRow(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = item.expiryDate.format(DateFormatter),
+                        text = expiryDateText,
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -693,7 +700,7 @@ private fun FoodItemRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = relativeExpiryText(item.expiryDate, today),
+                        text = relativeExpiryText,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = statusColor,
