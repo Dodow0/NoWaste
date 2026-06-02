@@ -21,14 +21,22 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
         }
     }
-
+    splits {
+        abi {
+            isEnable = true // 开启架构拆分
+            reset()
+            include("arm64-v8a", "armeabi-v7a") // 包含想要的架构
+            isUniversalApk = true // 设置为 true 会额外生成一个包含所有架构的通用通用胖包
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
