@@ -363,6 +363,17 @@ private fun NearExpiryDaysSetting(
     days: Int,
     onDaysChange: (Int) -> Unit,
 ) {
+    var daysText by rememberSaveable { mutableStateOf(days.toString()) }
+    val validDaysRange = AppSettings.MIN_NEAR_EXPIRY_DAYS..AppSettings.MAX_NEAR_EXPIRY_DAYS
+    val parsedDays = remember(daysText) { daysText.toIntOrNull() }
+    val isValid = daysText.isBlank() || parsedDays in validDaysRange
+
+    LaunchedEffect(days) {
+        if (parsedDays != days) {
+            daysText = days.toString()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -374,19 +385,33 @@ private fun NearExpiryDaysSetting(
             style = MaterialTheme.typography.titleMedium,
         )
         OutlinedTextField(
-            value = days.toString(),
+            value = daysText,
             onValueChange = { value ->
-                value.toIntOrNull()?.let(onDaysChange)
+                val digits = value.filter(Char::isDigit)
+                daysText = digits
+                val newDays = digits.toIntOrNull()
+                if (newDays != null && newDays in validDaysRange && newDays != days) {
+                    onDaysChange(newDays)
+                }
             },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("提前天数") },
+            isError = !isValid,
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         )
         Text(
-            text = "${AppSettings.MIN_NEAR_EXPIRY_DAYS}-${AppSettings.MAX_NEAR_EXPIRY_DAYS} 天，默认 ${AppSettings.DEFAULT_NEAR_EXPIRY_DAYS} 天",
+            text = if (isValid) {
+                "${AppSettings.MIN_NEAR_EXPIRY_DAYS}-${AppSettings.MAX_NEAR_EXPIRY_DAYS} 天，默认 ${AppSettings.DEFAULT_NEAR_EXPIRY_DAYS} 天"
+            } else {
+                "请输入 ${AppSettings.MIN_NEAR_EXPIRY_DAYS}-${AppSettings.MAX_NEAR_EXPIRY_DAYS} 天。"
+            },
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (isValid) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.error
+            },
         )
     }
 }

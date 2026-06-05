@@ -24,7 +24,7 @@ class AppSettings(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     private val stateFlow = MutableStateFlow(readState())
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        stateFlow.value = readState()
+        refreshState()
     }
 
     init {
@@ -36,21 +36,25 @@ class AppSettings(context: Context) {
     var reminderHour: Int
         get() = preferences.getInt(KEY_REMINDER_HOUR, DEFAULT_REMINDER_HOUR)
         set(value) {
-            preferences.edit().putInt(KEY_REMINDER_HOUR, value.coerceIn(0, 23)).apply()
+            updatePreferences {
+                putInt(KEY_REMINDER_HOUR, value.coerceIn(0, 23))
+            }
         }
 
     var reminderMinute: Int
         get() = preferences.getInt(KEY_REMINDER_MINUTE, DEFAULT_REMINDER_MINUTE)
         set(value) {
-            preferences.edit().putInt(KEY_REMINDER_MINUTE, value.coerceIn(0, 59)).apply()
+            updatePreferences {
+                putInt(KEY_REMINDER_MINUTE, value.coerceIn(0, 59))
+            }
         }
 
     var nearExpiryDays: Int
         get() = preferences.getInt(KEY_NEAR_EXPIRY_DAYS, DEFAULT_NEAR_EXPIRY_DAYS)
         set(value) {
-            preferences.edit()
-                .putInt(KEY_NEAR_EXPIRY_DAYS, value.coerceIn(MIN_NEAR_EXPIRY_DAYS, MAX_NEAR_EXPIRY_DAYS))
-                .apply()
+            updatePreferences {
+                putInt(KEY_NEAR_EXPIRY_DAYS, value.coerceIn(MIN_NEAR_EXPIRY_DAYS, MAX_NEAR_EXPIRY_DAYS))
+            }
         }
 
     var categoryTags: List<String>
@@ -68,33 +72,41 @@ class AppSettings(context: Context) {
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .distinct()
-            preferences.edit()
-                .putString(KEY_CATEGORY_TAGS, tags.joinToString(TAG_SEPARATOR))
-                .apply()
+            updatePreferences {
+                putString(KEY_CATEGORY_TAGS, tags.joinToString(TAG_SEPARATOR))
+            }
         }
 
     var smartParsingEnabled: Boolean
         get() = preferences.getBoolean(KEY_SMART_PARSING_ENABLED, false)
         set(value) {
-            preferences.edit().putBoolean(KEY_SMART_PARSING_ENABLED, value).apply()
+            updatePreferences {
+                putBoolean(KEY_SMART_PARSING_ENABLED, value)
+            }
         }
 
     var smartParsingApiUrl: String
         get() = preferences.getString(KEY_SMART_PARSING_API_URL, "").orEmpty()
         set(value) {
-            preferences.edit().putString(KEY_SMART_PARSING_API_URL, value.trim()).apply()
+            updatePreferences {
+                putString(KEY_SMART_PARSING_API_URL, value.trim())
+            }
         }
 
     var smartParsingApiKey: String
         get() = preferences.getString(KEY_SMART_PARSING_API_KEY, "").orEmpty()
         set(value) {
-            preferences.edit().putString(KEY_SMART_PARSING_API_KEY, value.trim()).apply()
+            updatePreferences {
+                putString(KEY_SMART_PARSING_API_KEY, value.trim())
+            }
         }
 
     var smartParsingModel: String
         get() = preferences.getString(KEY_SMART_PARSING_MODEL, "").orEmpty()
         set(value) {
-            preferences.edit().putString(KEY_SMART_PARSING_MODEL, value.trim()).apply()
+            updatePreferences {
+                putString(KEY_SMART_PARSING_MODEL, value.trim())
+            }
         }
 
     var theme: AppTheme
@@ -107,14 +119,16 @@ class AppSettings(context: Context) {
             }
         }
         set(value) {
-            preferences.edit().putString(KEY_THEME, value.name).apply()
+            updatePreferences {
+                putString(KEY_THEME, value.name)
+            }
         }
 
     fun updateReminderTime(hour: Int, minute: Int) {
-        preferences.edit()
-            .putInt(KEY_REMINDER_HOUR, hour.coerceIn(0, 23))
-            .putInt(KEY_REMINDER_MINUTE, minute.coerceIn(0, 59))
-            .apply()
+        updatePreferences {
+            putInt(KEY_REMINDER_HOUR, hour.coerceIn(0, 23))
+            putInt(KEY_REMINDER_MINUTE, minute.coerceIn(0, 59))
+        }
     }
 
     fun addCategoryTag(tag: String) {
@@ -150,6 +164,15 @@ class AppSettings(context: Context) {
             smartParsingModel = smartParsingModel,
             theme = theme,
         )
+
+    private fun updatePreferences(block: SharedPreferences.Editor.() -> Unit) {
+        preferences.edit().apply(block).apply()
+        refreshState()
+    }
+
+    private fun refreshState() {
+        stateFlow.value = readState()
+    }
 
     fun dispose() {
         preferences.unregisterOnSharedPreferenceChangeListener(listener)
