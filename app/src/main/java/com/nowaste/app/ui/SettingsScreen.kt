@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -739,7 +741,7 @@ private fun CategoryTagSettings(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "长按标签并上下拖动可调整顺序。",
+                    text = "长按左侧手柄可调整顺序。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -792,42 +794,53 @@ private fun CategoryTagSettings(
                                             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f)
                                         },
                                     )
-                                    .pointerInput(tag) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                draggingTag = tag
-                                                dragOffsetY = 0f
-                                            },
-                                            onDragCancel = {
-                                                draggingTag = null
-                                                dragOffsetY = 0f
-                                            },
-                                            onDragEnd = {
-                                                draggingTag = null
-                                                dragOffsetY = 0f
-                                            },
-                                            onDrag = { _, dragAmount ->
-                                                dragOffsetY += dragAmount.y
-                                                val currentTags = latestTags
-                                                val currentIndex = currentTags.indexOf(tag)
-                                                when {
-                                                    dragOffsetY <= -moveThreshold && currentIndex > 0 -> {
-                                                        latestOnMoveCategory(tag, -1)
-                                                        dragOffsetY = 0f
-                                                    }
-
-                                                    dragOffsetY >= moveThreshold && currentIndex in 0 until currentTags.lastIndex -> {
-                                                        latestOnMoveCategory(tag, 1)
-                                                        dragOffsetY = 0f
-                                                    }
-                                                }
-                                            },
-                                        )
-                                    }
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .pointerInput(tag) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = {
+                                                    draggingTag = tag
+                                                    dragOffsetY = 0f
+                                                },
+                                                onDragCancel = {
+                                                    draggingTag = null
+                                                    dragOffsetY = 0f
+                                                },
+                                                onDragEnd = {
+                                                    draggingTag = null
+                                                    dragOffsetY = 0f
+                                                },
+                                                onDrag = { _, dragAmount ->
+                                                    dragOffsetY += dragAmount.y
+                                                    val currentTags = latestTags
+                                                    val currentIndex = currentTags.indexOf(tag)
+                                                    when {
+                                                        dragOffsetY <= -moveThreshold && currentIndex > 0 -> {
+                                                            latestOnMoveCategory(tag, -1)
+                                                            dragOffsetY = 0f
+                                                        }
+
+                                                        dragOffsetY >= moveThreshold && currentIndex in 0 until currentTags.lastIndex -> {
+                                                            latestOnMoveCategory(tag, 1)
+                                                            dragOffsetY = 0f
+                                                        }
+                                                    }
+                                                },
+                                            )
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DragIndicator,
+                                        contentDescription = "拖动标签排序",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                                 Text(
                                     text = tag,
                                     modifier = Modifier.weight(1f),
