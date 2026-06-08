@@ -2,6 +2,7 @@ package com.nowaste.app.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import com.nowaste.app.domain.AppTheme
 import com.nowaste.app.domain.DefaultFoodCategories
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,15 +21,26 @@ data class SettingsState(
     val theme: AppTheme = AppTheme.FOLLOW_SYSTEM,
 )
 
-class AppSettings(context: Context) {
-    private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+class AppSettings internal constructor(
+    private val preferences: SharedPreferences,
+    private val sensitivePreferences: SharedPreferences,
+) {
     private val stateFlow = MutableStateFlow(readState())
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         refreshState()
     }
+    private val sensitiveListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        refreshState()
+    }
+
+    constructor(context: Context) : this(
+        preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE),
+        sensitivePreferences = context.getSharedPreferences(SENSITIVE_PREFERENCES_NAME, Context.MODE_PRIVATE),
+    )
 
     init {
         preferences.registerOnSharedPreferenceChangeListener(listener)
+        sensitivePreferences.registerOnSharedPreferenceChangeListener(sensitiveListener)
     }
 
     val state: StateFlow<SettingsState> = stateFlow.asStateFlow()
@@ -94,10 +106,26 @@ class AppSettings(context: Context) {
         }
 
     var smartParsingApiKey: String
-        get() = preferences.getString(KEY_SMART_PARSING_API_KEY, "").orEmpty()
+        get() = sensitivePreferences.getString(KEY_SMART_PARSING_API_KEY, null)
+            ?: migrateLegacySmartParsingApiKey()
         set(value) {
-            updatePreferences {
-                putString(KEY_SMART_PARSING_API_KEY, value.trim())
+            val cleanValue = value.trim()
+            if (cleanValue.isBlank() && preferences.contains(KEY_SMART_PARSING_API_KEY)) {
+                updatePreferences {
+                    remove(KEY_SMART_PARSING_API_KEY)
+                }
+            }
+            updateSensitivePreferences {
+                if (cleanValue.isBlank()) {
+                    remove(KEY_SMART_PARSING_API_KEY)
+                } else {
+                    putString(KEY_SMART_PARSING_API_KEY, cleanValue)
+                }
+            }
+            if (cleanValue.isNotBlank() && preferences.contains(KEY_SMART_PARSING_API_KEY)) {
+                updatePreferences {
+                    remove(KEY_SMART_PARSING_API_KEY)
+                }
             }
         }
 
@@ -166,8 +194,30 @@ class AppSettings(context: Context) {
         )
 
     private fun updatePreferences(block: SharedPreferences.Editor.() -> Unit) {
-        preferences.edit().apply(block).apply()
+        preferences.edit { block() }
         refreshState()
+    }
+
+    private fun updateSensitivePreferences(block: SharedPreferences.Editor.() -> Unit) {
+        sensitivePreferences.edit { block() }
+        refreshState()
+    }
+
+    private fun migrateLegacySmartParsingApiKey(): String {
+        val legacyValue = preferences.getString(KEY_SMART_PARSING_API_KEY, "").orEmpty().trim()
+        if (legacyValue.isNotBlank()) {
+            sensitivePreferences.edit {
+                putString(KEY_SMART_PARSING_API_KEY, legacyValue)
+            }
+            preferences.edit {
+                remove(KEY_SMART_PARSING_API_KEY)
+            }
+        } else if (preferences.contains(KEY_SMART_PARSING_API_KEY)) {
+            preferences.edit {
+                remove(KEY_SMART_PARSING_API_KEY)
+            }
+        }
+        return legacyValue
     }
 
     private fun refreshState() {
@@ -176,6 +226,7 @@ class AppSettings(context: Context) {
 
     fun dispose() {
         preferences.unregisterOnSharedPreferenceChangeListener(listener)
+        sensitivePreferences.unregisterOnSharedPreferenceChangeListener(sensitiveListener)
     }
 
     companion object {
@@ -187,6 +238,7 @@ class AppSettings(context: Context) {
         val DEFAULT_CATEGORY_TAGS = DefaultFoodCategories
 
         private const val PREFERENCES_NAME = "nowaste_settings"
+        private const val SENSITIVE_PREFERENCES_NAME = "nowaste_sensitive_settings"
         private const val KEY_REMINDER_HOUR = "reminder_hour"
         private const val KEY_REMINDER_MINUTE = "reminder_minute"
         private const val KEY_NEAR_EXPIRY_DAYS = "near_expiry_days"

@@ -17,6 +17,8 @@ import com.nowaste.app.notifications.ReminderScheduler
 import com.nowaste.app.settings.AppSettings
 import com.nowaste.app.settings.SettingsState
 import android.content.Context
+import com.nowaste.app.photos.deleteFoodPhotoUri
+import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -101,7 +103,15 @@ class FoodViewModel(
         onDeleted: () -> Unit,
     ) {
         viewModelScope.launch {
-            repository.deleteFoodItem(id)
+            val deletedItem = repository.deleteFoodItem(id)
+            deletedItem?.photoUri
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { photoUri ->
+                    withContext(Dispatchers.IO) {
+                        deleteFoodPhotoUri(appContext, photoUri.toUri())
+                    }
+                }
             onDeleted()
         }
     }

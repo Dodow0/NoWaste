@@ -31,7 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -58,6 +58,7 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -75,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.compose.ui.layout.ContentScale
@@ -104,7 +106,7 @@ fun FoodFormScreen(
     onPickNameFromPhoto: () -> Unit,
     onPickDateFromCamera: (DateOcrField) -> Unit,
     categoryTags: List<String> = emptyList(),
-    onSave: (FoodItemInput) -> Unit,
+    onSave: (FoodItemInput, () -> Unit) -> Unit,
     onDelete: (() -> Unit)?,
     navBackStackEntry: NavBackStackEntry? = null,
 ) {
@@ -126,6 +128,8 @@ fun FoodFormScreen(
     var quantityText by rememberSaveable(item?.id) { mutableStateOf(item?.quantity?.toString() ?: "1") }
     var note by rememberSaveable(item?.id) { mutableStateOf(item?.note.orEmpty()) }
     var photoUri by rememberSaveable(item?.id) { mutableStateOf(item?.photoUri.orEmpty()) }
+    var photoUriToDeleteAfterSave by rememberSaveable(item?.id) { mutableStateOf<String?>(null) }
+    var newPhotoUrisPendingCleanup by rememberSaveable(item?.id) { mutableStateOf(emptyList<String>()) }
     var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var launchCameraCapture by remember { mutableStateOf(false) }
     var showProductionDatePicker by remember { mutableStateOf(false) }
@@ -217,12 +221,64 @@ fun FoodFormScreen(
         }
     }
 
+    fun deletePhotoUri(photoUri: String) {
+        photoUri
+            .trim()
+            .takeIf { it.isNotBlank() }
+            ?.let { deleteFoodPhotoUri(context, it.toUri()) }
+    }
+
+    fun markCurrentPhotoForReplacement() {
+        val currentPhotoUri = photoUri.trim()
+        if (currentPhotoUri.isBlank()) return
+
+        if (currentPhotoUri == item?.photoUri.orEmpty().trim()) {
+            photoUriToDeleteAfterSave = currentPhotoUri
+        } else {
+            deletePhotoUri(currentPhotoUri)
+            newPhotoUrisPendingCleanup = newPhotoUrisPendingCleanup.filterNot { it == currentPhotoUri }
+        }
+    }
+
+    fun setCapturedPhoto(capturedPhotoUri: Uri) {
+        val nextPhotoUri = capturedPhotoUri.toString()
+        if (photoUri.trim().isNotBlank() && photoUri.trim() != nextPhotoUri) {
+            markCurrentPhotoForReplacement()
+        }
+        photoUri = nextPhotoUri
+        if (nextPhotoUri != item?.photoUri.orEmpty().trim()) {
+            newPhotoUrisPendingCleanup = (newPhotoUrisPendingCleanup + nextPhotoUri).distinct()
+        }
+    }
+
+    fun removeCurrentPhoto() {
+        markCurrentPhotoForReplacement()
+        photoUri = ""
+    }
+
+    fun cleanupPhotosAfterSave(savedPhotoUri: String) {
+        val retainedPhotoUri = savedPhotoUri.trim()
+        photoUriToDeleteAfterSave
+            ?.takeIf { it.isNotBlank() && it != retainedPhotoUri }
+            ?.let(::deletePhotoUri)
+        newPhotoUrisPendingCleanup
+            .filterNot { it == retainedPhotoUri }
+            .forEach(::deletePhotoUri)
+        photoUriToDeleteAfterSave = null
+        newPhotoUrisPendingCleanup = emptyList()
+    }
+
+    fun cleanupUnsavedPhotosBeforeExit() {
+        newPhotoUrisPendingCleanup.forEach(::deletePhotoUri)
+        newPhotoUrisPendingCleanup = emptyList()
+    }
+
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         pendingPhotoUri?.let {
             if (result.resultCode == Activity.RESULT_OK) {
-                photoUri = it.toString()
+                setCapturedPhoto(it)
             } else {
                 deleteFoodPhotoUri(context, it)
             }
@@ -322,6 +378,7 @@ fun FoodFormScreen(
         if (hasUnsavedChanges) {
             showDiscardChangesDialog = true
         } else {
+            cleanupUnsavedPhotosBeforeExit()
             onNavigateBack()
         }
     }
@@ -338,7 +395,7 @@ fun FoodFormScreen(
                 navigationIcon = {
                     IconButton(onClick = { requestNavigateBack() }) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
                         )
                     }
@@ -559,7 +616,7 @@ fun FoodFormScreen(
                             .height(180.dp)
                             .clip(MaterialTheme.shapes.large),
                     )
-                    TextButton(onClick = { photoUri = "" }) {
+                    TextButton(onClick = { removeCurrentPhoto() }) {
                         Text("移除照片")
                     }
                 }
@@ -579,20 +636,23 @@ fun FoodFormScreen(
                     } else {
                         note
                     }
-                    onSave(
-                        FoodItemInput(
-                            name = name,
-                            expiryDate = expiryDate,
-                            categoryTag = categoryTag,
-                            quantity = parsedQuantity ?: 1,
-                            note = cleanNote,
-                            photoUri = photoUri,
-                            productionDate = parsedProductionDate,
-                            shelfLifeAmount = parsedShelfLife?.amount,
-                            shelfLifeUnit = parsedShelfLife?.unit,
-                            reminderDaysBeforeExpiry = parsedReminderDaysBeforeExpiry,
-                        ),
+                    val input = FoodItemInput(
+                        name = name,
+                        expiryDate = expiryDate,
+                        categoryTag = categoryTag,
+                        quantity = parsedQuantity ?: 1,
+                        note = cleanNote,
+                        photoUri = photoUri,
+                        productionDate = parsedProductionDate,
+                        shelfLifeAmount = parsedShelfLife?.amount,
+                        shelfLifeUnit = parsedShelfLife?.unit,
+                        reminderDaysBeforeExpiry = parsedReminderDaysBeforeExpiry,
                     )
+                    onSave(
+                        input,
+                    ) {
+                        cleanupPhotosAfterSave(input.photoUri)
+                    }
                 },
                 enabled = canSave && !isSaving,
                 modifier = Modifier.fillMaxWidth(),
@@ -693,6 +753,7 @@ fun FoodFormScreen(
                 TextButton(
                     onClick = {
                         showDiscardChangesDialog = false
+                        cleanupUnsavedPhotosBeforeExit()
                         onNavigateBack()
                     },
                 ) {
@@ -751,7 +812,7 @@ fun MissingFoodScreen(onNavigateBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
                         )
                     }
@@ -955,10 +1016,10 @@ private fun PhotoViewerDialog(
     photoUri: String,
     onDismiss: () -> Unit,
 ) {
-    var scale by remember(photoUri) { mutableStateOf(1f) }
-    var offsetX by remember(photoUri) { mutableStateOf(0f) }
-    var offsetY by remember(photoUri) { mutableStateOf(0f) }
-    val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+    var scale by remember(photoUri) { mutableFloatStateOf(1f) }
+    var offsetX by remember(photoUri) { mutableFloatStateOf(0f) }
+    var offsetY by remember(photoUri) { mutableFloatStateOf(0f) }
+    val transformableState = rememberTransformableState { _, zoomChange, panChange, _ ->
         val nextScale = (scale * zoomChange).coerceIn(1f, 5f)
         scale = nextScale
         offsetX += panChange.x

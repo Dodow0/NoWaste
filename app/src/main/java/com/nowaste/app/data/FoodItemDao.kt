@@ -29,7 +29,7 @@ interface FoodItemDao {
     suspend fun delete(item: FoodItem)
 
     @Query("DELETE FROM food_items WHERE id = :id")
-    suspend fun deleteById(id: Long)
+    suspend fun deleteById(id: Long): Int
 
     @Query("UPDATE food_items SET quantity = :quantity, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateQuantity(id: Long, quantity: Int, updatedAt: LocalDateTime)

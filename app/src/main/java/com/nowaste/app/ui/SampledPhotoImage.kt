@@ -8,11 +8,14 @@ import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 
 private const val FullscreenPhotoMaxSidePx = 2048
 private const val PreviewPhotoMaxSidePx = 960
@@ -25,15 +28,22 @@ fun SampledPhotoImage(
     contentScale: ContentScale = ContentScale.Crop,
     maxSidePx: Int = PreviewPhotoMaxSidePx,
 ) {
+    val context = LocalContext.current
     val placeholderColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
     val errorPainter = rememberVectorPainter(Icons.Default.BrokenImage)
+    val imageRequest = remember(context, photoUri, maxSidePx) {
+        ImageRequest.Builder(context)
+            .data(photoUri.takeIf { it.isNotBlank() })
+            .size(maxSidePx, maxSidePx)
+            .build()
+    }
 
     Box(
         modifier = modifier.background(placeholderColor),
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
-            model = photoUri.takeIf { it.isNotBlank() },
+            model = imageRequest,
             contentDescription = contentDescription,
             modifier = Modifier.fillMaxSize(),
             contentScale = contentScale,

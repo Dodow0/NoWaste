@@ -623,8 +623,9 @@ private fun FoodItemRow(
     onQuantityIncrease: () -> Unit,
     onQuantityDecrease: () -> Unit,
 ) {
-    val status = remember(item.expiryDate, today, nearExpiryDays) {
-        calculateFoodStatus(item.expiryDate, today, nearExpiryDays)
+    val effectiveNearExpiryDays = item.reminderDaysBeforeExpiry ?: nearExpiryDays
+    val status = remember(item.expiryDate, today, effectiveNearExpiryDays) {
+        calculateFoodListItemStatus(item, today, nearExpiryDays)
     }
     val statusColor = statusColor(status)
     val progress = remember(item.createdAt, item.expiryDate, today) {
@@ -725,6 +726,17 @@ private fun FoodItemRow(
         }
     }
 }
+
+internal fun calculateFoodListItemStatus(
+    item: FoodItem,
+    today: LocalDate,
+    globalNearExpiryDays: Int,
+): FoodStatus =
+    calculateFoodStatus(
+        expiryDate = item.expiryDate,
+        today = today,
+        nearExpiryDays = item.reminderDaysBeforeExpiry ?: globalNearExpiryDays,
+    )
 
 @Composable
 private fun CategoryChip(category: String) {

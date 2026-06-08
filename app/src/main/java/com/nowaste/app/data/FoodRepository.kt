@@ -53,15 +53,16 @@ class FoodRepository(
     }
 
     suspend fun updateFoodItemQuantity(id: Long, quantity: Int) {
-        dao.   updateQuantity(
+        dao.updateQuantity(
             id = id,
             quantity = quantity.coerceAtLeast(1),
             updatedAt = now(),
         )
     }
 
-    suspend fun deleteFoodItem(id: Long) {
-        dao.deleteById(id)
+    suspend fun deleteFoodItem(id: Long): FoodItem? {
+        val existing = dao.getById(id) ?: return null
+        return if (dao.deleteById(id) > 0) existing else null
     }
 
     suspend fun getItemsForReminderCheck(date: LocalDate, nearExpiryDays: Int = 1): List<FoodItem> {

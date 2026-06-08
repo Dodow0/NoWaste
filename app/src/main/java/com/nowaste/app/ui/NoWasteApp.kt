@@ -13,7 +13,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.navigation.navDeepLink
 import com.nowaste.app.domain.FoodItemInput
+import com.nowaste.app.navigation.FoodDeepLinks
 
 private object Routes {
     const val FoodList = "foods"
@@ -30,7 +32,11 @@ private object Routes {
 }
 
 @Composable
-fun NoWasteApp(viewModel: FoodViewModel) {
+fun NoWasteApp(
+    viewModel: FoodViewModel,
+    notificationPermissionGranted: Boolean = true,
+    onRequestNotificationPermission: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val uiState by viewModel.foodListUiState.collectAsStateWithLifecycle()
 
@@ -84,11 +90,14 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                 onPickNameFromPhoto = { navController.navigate(Routes.TextPicker) },
                 onPickDateFromCamera = { field -> navController.navigate(Routes.dateOcr(field)) },
                 categoryTags = settings?.categoryTags.orEmpty(),
-                onSave = { input ->
+                onSave = { input, afterSaved ->
                     viewModel.saveFoodItem(
                         id = null,
                         input = input,
-                        onSaved = { navController.popBackStack() },
+                        onSaved = {
+                            afterSaved()
+                            navController.popBackStack()
+                        },
                     )
                 },
                 onDelete = null,
@@ -98,17 +107,25 @@ fun NoWasteApp(viewModel: FoodViewModel) {
         composable(
             route = Routes.EditFood,
             arguments = listOf(navArgument("itemId") { type = NavType.LongType }),
+            deepLinks = listOf(
+                navDeepLink {
+                    uriPattern = FoodDeepLinks.FoodItemPattern
+                },
+            ),
         ) { backStackEntry ->
             val itemId = backStackEntry.arguments?.getLong("itemId") ?: return@composable
             FoodEditRoute(
                 itemId = itemId,
                 uiState = uiState,
                 onNavigateBack = { navController.popBackStack() },
-                onSave = { input ->
+                onSave = { input, afterSaved ->
                     viewModel.saveFoodItem(
                         id = itemId,
                         input = input,
-                        onSaved = { navController.popBackStack() },
+                        onSaved = {
+                            afterSaved()
+                            navController.popBackStack()
+                        },
                     )
                 },
                 onDelete = {
@@ -201,6 +218,8 @@ fun NoWasteApp(viewModel: FoodViewModel) {
                     settings = currentState.settings,
                     foodItems = currentState.items,
                     onNavigateBack = { navController.popBackStack() },
+                    notificationPermissionGranted = notificationPermissionGranted,
+                    onRequestNotificationPermission = onRequestNotificationPermission,
                     onReminderTimeChange = viewModel::updateReminderTime,
                     onNearExpiryDaysChange = viewModel::updateNearExpiryDays,
                     onAddCategoryTag = viewModel::addCategoryTag,
@@ -226,7 +245,7 @@ private fun FoodEditRoute(
     itemId: Long,
     uiState: FoodListUiState,
     onNavigateBack: () -> Unit,
-    onSave: (FoodItemInput) -> Unit,
+    onSave: (FoodItemInput, () -> Unit) -> Unit,
     onDelete: () -> Unit,
     onPickNameFromPhoto: () -> Unit,
     onPickDateFromCamera: (DateOcrField) -> Unit,

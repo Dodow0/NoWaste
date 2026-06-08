@@ -33,7 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
@@ -50,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -131,7 +132,7 @@ fun DateOcrCameraScreen(
     }
     var candidate by remember { mutableStateOf<DateOcrCandidate?>(null) }
     var lastCandidateValue by remember { mutableStateOf<String?>(null) }
-    var stableHits by remember { mutableStateOf(0) }
+    var stableHits by remember { mutableIntStateOf(0) }
     var hasCompleted by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -168,7 +169,7 @@ fun DateOcrCameraScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
                         )
                     }
@@ -509,7 +510,7 @@ private class DateOcrAnalyzer(
     private val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
     private val isProcessing = AtomicBoolean(false)
 
-    @OptIn(ExperimentalGetImage::class)
+    @ExperimentalGetImage
     override fun analyze(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image
         if (mediaImage == null) {
@@ -593,17 +594,12 @@ private fun vibrateDateCaptured(context: Context) {
         context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
     } ?: return
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        runCatching {
-            vibrator.vibrate(
-                VibrationEffect.createOneShot(
-                    70L,
-                    VibrationEffect.DEFAULT_AMPLITUDE,
-                ),
-            )
-        }
-    } else {
-        @Suppress("DEPRECATION")
-        runCatching { vibrator.vibrate(70L) }
+    runCatching {
+        vibrator.vibrate(
+            VibrationEffect.createOneShot(
+                70L,
+                VibrationEffect.DEFAULT_AMPLITUDE,
+            ),
+        )
     }
 }

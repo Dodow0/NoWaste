@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -25,13 +27,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Upload
@@ -59,14 +59,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -78,14 +81,17 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nowaste.app.data.FoodItem
+import com.nowaste.app.dataio.FoodDataIo
+import com.nowaste.app.dataio.FoodExportFormat
 import com.nowaste.app.domain.AppTheme
 import com.nowaste.app.domain.FoodItemInput
-import com.nowaste.app.domain.ShelfLifeUnit
 import com.nowaste.app.settings.AppSettings
 import com.nowaste.app.settings.SettingsState
-import org.json.JSONArray
-import org.json.JSONObject
-import java.time.LocalDate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -95,6 +101,8 @@ fun SettingsScreen(
     settings: SettingsState,
     foodItems: List<FoodItem>,
     onNavigateBack: () -> Unit,
+    notificationPermissionGranted: Boolean,
+    onRequestNotificationPermission: () -> Unit,
     onReminderTimeChange: (Int, Int) -> Unit,
     onNearExpiryDaysChange: (Int) -> Unit,
     onAddCategoryTag: (String) -> Unit,
@@ -109,39 +117,68 @@ fun SettingsScreen(
     onTestSmartParsing: ((String) -> Unit, (String) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showTimePicker by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var newCategory by remember { mutableStateOf("") }
     var pendingDeleteCategory by remember { mutableStateOf<String?>(null) }
-    var pendingExportContent by remember { mutableStateOf<String?>(null) }
+    var pendingExport by remember { mutableStateOf<PendingExport?>(null) }
     var dataFeedback by remember { mutableStateOf<String?>(null) }
 
     val jsonExportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
-        val content = pendingExportContent
-        dataFeedback = if (uri != null && content != null && writeExportContent(context, uri, content)) {
-            "已导出 JSON 文件。"
-        } else if (uri == null) {
+        val export = pendingExport
+        if (uri == null) {
             "已取消导出。"
-        } else {
-            "导出失败，请稍后重试。"
+                .also { dataFeedback = it }
+            pendingExport = null
+            return@rememberLauncherForActivityResult
         }
-        pendingExportContent = null
+        if (export == null) {
+            dataFeedback = "导出失败，请重试。"
+            return@rememberLauncherForActivityResult
+        }
+        dataFeedback = "正在导出..."
+        scope.launch {
+            val success = withContext(Dispatchers.IO) {
+                writeExportContent(context, uri, export.items, export.format)
+            }
+            dataFeedback = if (success) {
+                "已导出 ${export.format.label} 文件。"
+            } else {
+                "导出失败，请稍后重试。"
+            }
+            pendingExport = null
+        }
     }
 
     val csvExportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv"),
     ) { uri ->
-        val content = pendingExportContent
-        dataFeedback = if (uri != null && content != null && writeExportContent(context, uri, content)) {
-            "已导出 CSV 文件。"
-        } else if (uri == null) {
+        val export = pendingExport
+        if (uri == null) {
             "已取消导出。"
-        } else {
-            "导出失败，请稍后重试。"
+                .also { dataFeedback = it }
+            pendingExport = null
+            return@rememberLauncherForActivityResult
         }
-        pendingExportContent = null
+        if (export == null) {
+            dataFeedback = "导出失败，请重试。"
+            return@rememberLauncherForActivityResult
+        }
+        dataFeedback = "正在导出..."
+        scope.launch {
+            val success = withContext(Dispatchers.IO) {
+                writeExportContent(context, uri, export.items, export.format)
+            }
+            dataFeedback = if (success) {
+                "已导出 ${export.format.label} 文件。"
+            } else {
+                "导出失败，请稍后重试。"
+            }
+            pendingExport = null
+        }
     }
 
     val importLauncher = rememberLauncherForActivityResult(
@@ -151,19 +188,24 @@ fun SettingsScreen(
             dataFeedback = "已取消导入。"
             return@rememberLauncherForActivityResult
         }
-        parseImportContent(context, uri)
-            .onSuccess { inputs ->
-                if (inputs.isEmpty()) {
-                    dataFeedback = "没有找到可导入的食品记录。"
-                } else {
-                    onImportFoods(inputs) {
-                        dataFeedback = "已导入 ${inputs.size} 条记录。"
+        dataFeedback = "正在导入..."
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                parseImportContent(context, uri)
+            }
+                .onSuccess { inputs ->
+                    if (inputs.isEmpty()) {
+                        dataFeedback = "没有找到可导入的食品记录。"
+                    } else {
+                        onImportFoods(inputs) {
+                            dataFeedback = "已导入 ${inputs.size} 条记录。"
+                        }
                     }
                 }
-            }
-            .onFailure { error ->
-                dataFeedback = error.message ?: "导入失败，请检查文件格式。"
-            }
+                .onFailure { error ->
+                    dataFeedback = error.message ?: "导入失败，请检查文件格式。"
+                }
+        }
     }
 
     fun submitNewCategory() {
@@ -174,15 +216,15 @@ fun SettingsScreen(
         }
     }
 
-    fun exportData(format: ExportFormat) {
+    fun exportData(format: FoodExportFormat) {
         val timestamp = LocalDateTime.now().format(ExportFileTimestampFormatter)
-        pendingExportContent = when (format) {
-            ExportFormat.Json -> foodItems.toJsonExport()
-            ExportFormat.Csv -> foodItems.toCsvExport()
-        }
+        pendingExport = PendingExport(
+            format = format,
+            items = foodItems.toList(),
+        )
         when (format) {
-            ExportFormat.Json -> jsonExportLauncher.launch("nowaste-foods-$timestamp.json")
-            ExportFormat.Csv -> csvExportLauncher.launch("nowaste-foods-$timestamp.csv")
+            FoodExportFormat.Json -> jsonExportLauncher.launch("nowaste-foods-$timestamp.json")
+            FoodExportFormat.Csv -> csvExportLauncher.launch("nowaste-foods-$timestamp.csv")
         }
     }
 
@@ -193,7 +235,7 @@ fun SettingsScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
                         )
                     }
@@ -214,6 +256,11 @@ fun SettingsScreen(
                     hour = settings.reminderHour,
                     minute = settings.reminderMinute,
                     onClick = { showTimePicker = true },
+                )
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                NotificationPermissionSettingItem(
+                    granted = notificationPermissionGranted,
+                    onEnableClick = onRequestNotificationPermission,
                 )
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                 NearExpiryDaysSetting(
@@ -253,8 +300,8 @@ fun SettingsScreen(
                 DataManagementSettings(
                     itemCount = foodItems.size,
                     feedback = dataFeedback,
-                    onExportJson = { exportData(ExportFormat.Json) },
-                    onExportCsv = { exportData(ExportFormat.Csv) },
+                    onExportJson = { exportData(FoodExportFormat.Json) },
+                    onExportCsv = { exportData(FoodExportFormat.Csv) },
                     onImport = { importLauncher.launch(arrayOf("application/json", "text/csv", "text/*", "*/*")) },
                 )
             }
@@ -351,9 +398,42 @@ private fun ReminderTimeSettingItem(
         supportingContent = { Text("当前 $timeText") },
         trailingContent = {
             Icon(
-                imageVector = Icons.Default.KeyboardArrowRight,
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
             )
+        },
+    )
+}
+
+@Composable
+private fun NotificationPermissionSettingItem(
+    granted: Boolean,
+    onEnableClick: () -> Unit,
+) {
+    ListItem(
+        leadingContent = {
+            Icon(
+                imageVector = Icons.Default.Schedule,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        headlineContent = { Text("通知权限") },
+        supportingContent = {
+            Text(
+                if (granted) {
+                    "已允许，到期提醒可以显示通知。"
+                } else {
+                    "未允许，授权后才能收到每日到期提醒。"
+                },
+            )
+        },
+        trailingContent = {
+            if (!granted) {
+                Button(onClick = onEnableClick) {
+                    Text("启用")
+                }
+            }
         },
     )
 }
@@ -364,12 +444,24 @@ private fun NearExpiryDaysSetting(
     onDaysChange: (Int) -> Unit,
 ) {
     var daysText by rememberSaveable { mutableStateOf(days.toString()) }
-    val validDaysRange = AppSettings.MIN_NEAR_EXPIRY_DAYS..AppSettings.MAX_NEAR_EXPIRY_DAYS
-    val parsedDays = remember(daysText) { daysText.toIntOrNull() }
-    val isValid = daysText.isBlank() || parsedDays in validDaysRange
+    var isFocused by remember { mutableStateOf(false) }
+    val parsedDays = remember(daysText) { parseNearExpiryDaysText(daysText) }
+    val isValid = daysText.isBlank() || parsedDays != null
 
-    LaunchedEffect(days) {
-        if (parsedDays != days) {
+    fun restoreIfNeeded() {
+        val committedDays = parseNearExpiryDaysText(daysText)
+        if (committedDays == null) {
+            daysText = days.toString()
+        } else {
+            daysText = committedDays.toString()
+            if (committedDays != days) {
+                onDaysChange(committedDays)
+            }
+        }
+    }
+
+    LaunchedEffect(days, isFocused) {
+        if (!isFocused && daysText != days.toString()) {
             daysText = days.toString()
         }
     }
@@ -389,12 +481,19 @@ private fun NearExpiryDaysSetting(
             onValueChange = { value ->
                 val digits = value.filter(Char::isDigit)
                 daysText = digits
-                val newDays = digits.toIntOrNull()
-                if (newDays != null && newDays in validDaysRange && newDays != days) {
+                val newDays = parseNearExpiryDaysText(digits)
+                if (newDays != null && newDays != days) {
                     onDaysChange(newDays)
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (isFocused && !focusState.isFocused) {
+                        restoreIfNeeded()
+                    }
+                    isFocused = focusState.isFocused
+                },
             label = { Text("提前天数") },
             isError = !isValid,
             singleLine = true,
@@ -434,7 +533,7 @@ private fun ThemeSettingItem(
         supportingContent = { Text("当前 ${theme.label}") },
         trailingContent = {
             Icon(
-                imageVector = Icons.Default.KeyboardArrowRight,
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
             )
         },
@@ -740,7 +839,7 @@ private fun CategoryTagSettings(
     onDeleteCategoryRequest: (String) -> Unit,
 ) {
     var draggingTag by remember { mutableStateOf<String?>(null) }
-    var dragOffsetY by remember { mutableStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
     var isExpanded by rememberSaveable { mutableStateOf(false) }
     val latestTags by rememberUpdatedState(tags)
     val latestOnMoveCategory by rememberUpdatedState(onMoveCategory)
@@ -978,10 +1077,16 @@ private fun ReminderTimePickerDialog(
     )
 }
 
-private enum class ExportFormat {
-    Json,
-    Csv,
-}
+private data class PendingExport(
+    val format: FoodExportFormat,
+    val items: List<FoodItem>,
+)
+
+private val FoodExportFormat.label: String
+    get() = when (this) {
+        FoodExportFormat.Json -> "JSON"
+        FoodExportFormat.Csv -> "CSV"
+    }
 
 private val ExportFileTimestampFormatter: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
@@ -989,11 +1094,14 @@ private val ExportFileTimestampFormatter: DateTimeFormatter =
 private fun writeExportContent(
     context: Context,
     uri: Uri,
-    content: String,
+    items: List<FoodItem>,
+    format: FoodExportFormat,
 ): Boolean =
     runCatching {
         context.contentResolver.openOutputStream(uri)?.use { output ->
-            output.write(content.toByteArray(Charsets.UTF_8))
+            OutputStreamWriter(output, Charsets.UTF_8).use { writer ->
+                FoodDataIo.exportFoods(items, format, writer)
+            }
         } ?: error("Unable to open export destination.")
     }.isSuccess
 
@@ -1002,213 +1110,15 @@ private fun parseImportContent(
     uri: Uri,
 ): Result<List<FoodItemInput>> =
     runCatching {
-        val content = context.contentResolver.openInputStream(uri)?.use { input ->
-            input.readBytes().toString(Charsets.UTF_8)
-        } ?: error("无法读取导入文件。")
-
-        when {
-            content.trimStart().startsWith("{") || content.trimStart().startsWith("[") -> parseJsonImport(content)
-            else -> parseCsvImport(content)
-        }
-    }
-
-private fun parseJsonImport(content: String): List<FoodItemInput> {
-    val trimmed = content.trim()
-    val items = if (trimmed.startsWith("[")) {
-        JSONArray(trimmed)
-    } else {
-        JSONObject(trimmed).optJSONArray("items") ?: JSONArray()
-    }
-    return buildList {
-        for (index in 0 until items.length()) {
-            val item = items.optJSONObject(index) ?: continue
-            item.toFoodItemInputOrNull()?.let(::add)
-        }
-    }
-}
-
-private fun JSONObject.toFoodItemInputOrNull(): FoodItemInput? {
-    val name = optString("name").trim()
-    val expiryDate = optNullableString("expiryDate")?.let(::parseImportDate) ?: return null
-    if (name.isBlank()) return null
-
-    return FoodItemInput(
-        name = name,
-        expiryDate = expiryDate,
-        categoryTag = optString("categoryTag").trim(),
-        note = optString("note").trim(),
-        photoUri = optString("photoUri").trim(),
-        quantity = optInt("quantity", 1).coerceAtLeast(1),
-        productionDate = optNullableString("productionDate")?.let(::parseImportDate),
-        shelfLifeAmount = optNullableLong("shelfLifeAmount"),
-        shelfLifeUnit = optNullableString("shelfLifeUnit")?.let(::parseImportShelfLifeUnit),
-        reminderDaysBeforeExpiry = optNullableInt("reminderDaysBeforeExpiry"),
-    )
-}
-
-private fun parseCsvImport(content: String): List<FoodItemInput> {
-    val rows = parseCsvRows(content).filter { row -> row.any { it.isNotBlank() } }
-    if (rows.isEmpty()) return emptyList()
-    val headers = rows.first().map { it.trim() }
-    return rows.drop(1).mapNotNull { row ->
-        val values = headers.zip(row + List((headers.size - row.size).coerceAtLeast(0)) { "" }).toMap()
-        values.toFoodItemInputOrNull()
-    }
-}
-
-private fun Map<String, String>.toFoodItemInputOrNull(): FoodItemInput? {
-    val name = this["name"].orEmpty().trim()
-    val expiryDate = this["expiryDate"]?.let(::parseImportDate) ?: return null
-    if (name.isBlank()) return null
-
-    return FoodItemInput(
-        name = name,
-        expiryDate = expiryDate,
-        categoryTag = this["categoryTag"].orEmpty().trim(),
-        note = this["note"].orEmpty().trim(),
-        photoUri = this["photoUri"].orEmpty().trim(),
-        quantity = this["quantity"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1,
-        productionDate = this["productionDate"]?.let(::parseImportDate),
-        shelfLifeAmount = this["shelfLifeAmount"]?.toLongOrNull(),
-        shelfLifeUnit = this["shelfLifeUnit"]?.let(::parseImportShelfLifeUnit),
-        reminderDaysBeforeExpiry = this["reminderDaysBeforeExpiry"]?.toIntOrNull(),
-    )
-}
-
-private fun List<FoodItem>.toJsonExport(): String {
-    val items = JSONArray()
-    forEach { item ->
-        items.put(
-            JSONObject()
-                .put("id", item.id)
-                .put("name", item.name)
-                .put("expiryDate", item.expiryDate.toString())
-                .put("productionDate", item.productionDate?.toString().orJsonNull())
-                .put("shelfLifeAmount", item.shelfLifeAmount.orJsonNull())
-                .put("shelfLifeUnit", item.shelfLifeUnit?.name.orJsonNull())
-                .put("reminderDaysBeforeExpiry", item.reminderDaysBeforeExpiry.orJsonNull())
-                .put("categoryTag", item.categoryTag)
-                .put("quantity", item.quantity)
-                .put("note", item.note)
-                .put("photoUri", item.photoUri)
-                .put("createdAt", item.createdAt.toString())
-                .put("updatedAt", item.updatedAt.toString()),
-        )
-    }
-    return JSONObject()
-        .put("schemaVersion", 1)
-        .put("exportedAt", LocalDateTime.now().toString())
-        .put("items", items)
-        .toString(2)
-}
-
-private fun List<FoodItem>.toCsvExport(): String {
-    val headers = listOf(
-        "id",
-        "name",
-        "expiryDate",
-        "productionDate",
-        "shelfLifeAmount",
-        "shelfLifeUnit",
-        "reminderDaysBeforeExpiry",
-        "categoryTag",
-        "quantity",
-        "note",
-        "photoUri",
-        "createdAt",
-        "updatedAt",
-    )
-    val rows = map { item ->
-        listOf(
-            item.id.toString(),
-            item.name,
-            item.expiryDate.toString(),
-            item.productionDate?.toString().orEmpty(),
-            item.shelfLifeAmount?.toString().orEmpty(),
-            item.shelfLifeUnit?.name.orEmpty(),
-            item.reminderDaysBeforeExpiry?.toString().orEmpty(),
-            item.categoryTag,
-            item.quantity.toString(),
-            item.note,
-            item.photoUri,
-            item.createdAt.toString(),
-            item.updatedAt.toString(),
-        )
-    }
-    return buildString {
-        appendLine(headers.joinToString(",") { it.toCsvCell() })
-        rows.forEach { row ->
-            appendLine(row.joinToString(",") { it.toCsvCell() })
-        }
-    }
-}
-
-private fun String.toCsvCell(): String {
-    val escaped = replace("\"", "\"\"")
-    return if (any { it == ',' || it == '"' || it == '\n' || it == '\r' }) {
-        "\"$escaped\""
-    } else {
-        escaped
-    }
-}
-
-private fun parseCsvRows(content: String): List<List<String>> {
-    val rows = mutableListOf<List<String>>()
-    val row = mutableListOf<String>()
-    val cell = StringBuilder()
-    var index = 0
-    var inQuotes = false
-
-    while (index < content.length) {
-        val char = content[index]
-        when {
-            inQuotes && char == '"' && content.getOrNull(index + 1) == '"' -> {
-                cell.append('"')
-                index += 1
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            InputStreamReader(input, Charsets.UTF_8).use { reader ->
+                FoodDataIo.importFoods(reader)
             }
-
-            char == '"' -> inQuotes = !inQuotes
-            !inQuotes && char == ',' -> {
-                row.add(cell.toString())
-                cell.clear()
-            }
-
-            !inQuotes && (char == '\n' || char == '\r') -> {
-                if (char == '\r' && content.getOrNull(index + 1) == '\n') {
-                    index += 1
-                }
-                row.add(cell.toString())
-                rows.add(row.toList())
-                row.clear()
-                cell.clear()
-            }
-
-            else -> cell.append(char)
         }
-        index += 1
+            ?: error("无法读取导入文件。")
     }
 
-    if (cell.isNotEmpty() || row.isNotEmpty()) {
-        row.add(cell.toString())
-        rows.add(row.toList())
-    }
-
-    return rows
-}
-
-private fun parseImportDate(value: String): LocalDate? =
-    runCatching { LocalDate.parse(value.trim()) }.getOrNull()
-
-private fun parseImportShelfLifeUnit(value: String): ShelfLifeUnit? =
-    runCatching { ShelfLifeUnit.valueOf(value.trim()) }.getOrNull()
-
-private fun JSONObject.optNullableString(name: String): String? =
-    if (has(name) && !isNull(name)) optString(name).takeIf { it.isNotBlank() } else null
-
-private fun JSONObject.optNullableLong(name: String): Long? =
-    if (has(name) && !isNull(name)) optLong(name) else null
-
-private fun JSONObject.optNullableInt(name: String): Int? =
-    if (has(name) && !isNull(name)) optInt(name) else null
-
-private fun Any?.orJsonNull(): Any = this ?: JSONObject.NULL
+internal fun parseNearExpiryDaysText(input: String): Int? =
+    input.trim()
+        .toIntOrNull()
+        ?.takeIf { it in AppSettings.MIN_NEAR_EXPIRY_DAYS..AppSettings.MAX_NEAR_EXPIRY_DAYS }

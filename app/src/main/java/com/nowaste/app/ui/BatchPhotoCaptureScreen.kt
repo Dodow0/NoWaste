@@ -25,7 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import com.nowaste.app.photos.createFoodPhotoUri
 import com.nowaste.app.photos.deleteFoodPhotoUri
 
@@ -139,7 +140,7 @@ fun BatchPhotoCaptureScreen(
 
     fun removeCapturedPhoto(photoUri: String) {
         capturedPhotoUris = capturedPhotoUris.filterNot { it == photoUri }
-        deleteFoodPhotoUri(context, Uri.parse(photoUri))
+        deleteFoodPhotoUri(context, photoUri.toUri())
     }
 
     Scaffold(
@@ -150,7 +151,7 @@ fun BatchPhotoCaptureScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
                         )
                     }

@@ -100,17 +100,18 @@ class FoodRepositoryRoomTest {
     }
 
     @Test
-    fun reminderCheckReturnsThresholdTodayAndYesterdayOnly() = runTest {
+    fun reminderCheckReturnsItemsInsideReminderWindow() = runTest {
         val today = LocalDate.of(2026, 5, 25)
         repository.addFoodItem(FoodItemInput("Threshold", today.plusDays(7), "", ""))
         repository.addFoodItem(FoodItemInput("Today", today, "", ""))
         repository.addFoodItem(FoodItemInput("Yesterday", today.minusDays(1), "", ""))
-        repository.addFoodItem(FoodItemInput("Later", today.plusDays(2), "", ""))
+        repository.addFoodItem(FoodItemInput("Inside", today.plusDays(2), "", ""))
+        repository.addFoodItem(FoodItemInput("Outside", today.plusDays(8), "", ""))
 
         val reminders = repository.getItemsForReminderCheck(today, nearExpiryDays = 7)
 
-        assertEquals(listOf("Yesterday", "Today", "Threshold"), reminders.map { it.name })
-        assertTrue(reminders.none { it.name == "Later" })
+        assertEquals(listOf("Yesterday", "Today", "Inside", "Threshold"), reminders.map { it.name })
+        assertTrue(reminders.none { it.name == "Outside" })
     }
 
     @Test

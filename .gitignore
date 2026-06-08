@@ -30,6 +30,11 @@ secrets.properties
 bin/
 gen/
 out/
+*.apk
+*.ap_
+*.aab
+*.dm
+app/release/output-metadata.json
 
 # OS generated
 .DS_Store
