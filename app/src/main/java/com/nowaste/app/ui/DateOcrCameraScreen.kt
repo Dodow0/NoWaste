@@ -72,8 +72,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.Text as VisionText
 import com.nowaste.app.domain.extractExpiryDateFromText
 import com.nowaste.app.domain.extractProductionDateFromText
@@ -134,6 +132,7 @@ fun DateOcrCameraScreen(
     var lastCandidateValue by remember { mutableStateOf<String?>(null) }
     var stableHits by remember { mutableIntStateOf(0) }
     var hasCompleted by remember { mutableStateOf(false) }
+    var recognitionUnavailable by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -198,6 +197,7 @@ fun DateOcrCameraScreen(
                             lastCandidateValue = null
                             stableHits = 0
                         } else {
+                            recognitionUnavailable = false
                             candidate = detected
                             if (detected.value == lastCandidateValue) {
                                 stableHits += 1
@@ -206,6 +206,9 @@ fun DateOcrCameraScreen(
                                 stableHits = 1
                             }
                         }
+                    },
+                    onRecognitionUnavailable = {
+                        recognitionUnavailable = true
                     },
                 )
                 DateOcrOverlay(
@@ -218,6 +221,7 @@ fun DateOcrCameraScreen(
                     field = field,
                     candidate = candidate,
                     stableHits = stableHits,
+                    recognitionUnavailable = recognitionUnavailable,
                     onConfirm = {
                         candidate?.let { confirmCandidate(it.value) }
                     },
@@ -239,6 +243,7 @@ fun DateOcrCameraScreen(
 private fun DateOcrCameraPreview(
     field: DateOcrField,
     onCandidateDetected: (DateOcrCandidate?) -> Unit,
+    onRecognitionUnavailable: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -251,6 +256,7 @@ private fun DateOcrCameraPreview(
         }
     }
     val latestOnCandidateDetected by rememberUpdatedState(onCandidateDetected)
+    val latestOnRecognitionUnavailable by rememberUpdatedState(onRecognitionUnavailable)
     val analyzer = remember(field, mainExecutor) {
         DateOcrAnalyzer(
             field = field,
@@ -265,24 +271,37 @@ private fun DateOcrCameraPreview(
     )
 
     DisposableEffect(lifecycleOwner, previewView, analyzer) {
+        if (!analyzer.isRecognitionAvailable) {
+            latestOnRecognitionUnavailable()
+            onDispose {
+                analyzer.close()
+            }
+        } else {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         val listener = Runnable {
-            val cameraProvider = cameraProviderFuture.get()
-            val preview = Preview.Builder()
-                .build()
-                .also { it.setSurfaceProvider(previewView.surfaceProvider) }
-            val analysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .also { it.setAnalyzer(cameraExecutor, analyzer) }
+            val cameraProvider = runCatching { cameraProviderFuture.get() }.getOrElse {
+                latestOnCandidateDetected(null)
+                return@Runnable
+            }
+            runCatching {
+                val preview = Preview.Builder()
+                    .build()
+                    .also { it.setSurfaceProvider(previewView.surfaceProvider) }
+                val analysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                    .also { it.setAnalyzer(cameraExecutor, analyzer) }
 
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                analysis,
-            )
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    analysis,
+                )
+            }.onFailure {
+                latestOnCandidateDetected(null)
+            }
         }
 
         cameraProviderFuture.addListener(listener, mainExecutor)
@@ -292,6 +311,7 @@ private fun DateOcrCameraPreview(
             if (cameraProviderFuture.isDone) {
                 runCatching { cameraProviderFuture.get().unbindAll() }
             }
+        }
         }
     }
 
@@ -356,6 +376,7 @@ private fun DateOcrBottomPanel(
     field: DateOcrField,
     candidate: DateOcrCandidate?,
     stableHits: Int,
+    recognitionUnavailable: Boolean,
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -394,7 +415,11 @@ private fun DateOcrBottomPanel(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = candidate?.let { "已识别：${it.value}" } ?: "识别会实时进行，无需拍照。",
+                        text = when {
+                            recognitionUnavailable -> "文字识别初始化失败，请稍后重试。"
+                            candidate != null -> "已识别：${candidate.value}"
+                            else -> "识别会实时进行，无需拍照。"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -403,10 +428,10 @@ private fun DateOcrBottomPanel(
                 }
             }
             Text(
-                text = if (candidate == null) {
-                    "找到有效内容后会出现绿色框；连续稳定识别会自动填入。"
-                } else {
-                    "稳定帧数 $stableHits/$StableFrameThreshold，点击绿色框或按钮可立即填入。"
+                text = when {
+                    recognitionUnavailable -> "当前无法启动本机文字识别，退出后重新进入可重试。"
+                    candidate == null -> "找到有效内容后会出现绿色框；连续稳定识别会自动填入。"
+                    else -> "稳定帧数 $stableHits/$StableFrameThreshold，点击绿色框或按钮可立即填入。"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -507,13 +532,18 @@ private class DateOcrAnalyzer(
     private val mainExecutor: Executor,
     private val onCandidateDetected: (DateOcrCandidate?) -> Unit,
 ) : ImageAnalysis.Analyzer {
-    private val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+    private val recognizer = createSafeTextRecognizer()
     private val isProcessing = AtomicBoolean(false)
+    private val shouldClose = AtomicBoolean(false)
+    private val isClosed = AtomicBoolean(false)
+    val isRecognitionAvailable: Boolean
+        get() = recognizer != null
 
     @ExperimentalGetImage
     override fun analyze(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image
-        if (mediaImage == null) {
+        val textRecognizer = recognizer
+        if (mediaImage == null || textRecognizer == null || shouldClose.get()) {
             imageProxy.close()
             return
         }
@@ -524,7 +554,14 @@ private class DateOcrAnalyzer(
         }
 
         val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-        val image = InputImage.fromMediaImage(mediaImage, rotationDegrees)
+        val image = runCatching {
+            InputImage.fromMediaImage(mediaImage, rotationDegrees)
+        }.getOrElse {
+            isProcessing.set(false)
+            imageProxy.close()
+            closeRecognizerIfReady()
+            return
+        }
         val imageWidth = if (rotationDegrees == 90 || rotationDegrees == 270) {
             imageProxy.height
         } else {
@@ -536,25 +573,44 @@ private class DateOcrAnalyzer(
             imageProxy.height
         }
 
-        recognizer.process(image)
-            .addOnSuccessListener(mainExecutor) { visionText ->
-                onCandidateDetected(
-                    findDateOcrCandidate(
-                    visionText = visionText,
-                    field = field,
-                    imageWidth = imageWidth,
-                    imageHeight = imageHeight,
-                    ),
-                )
-            }
-            .addOnCompleteListener {
-                isProcessing.set(false)
-                imageProxy.close()
-            }
+        runCatching {
+            textRecognizer.process(image)
+                .addOnSuccessListener(mainExecutor) { visionText ->
+                    if (shouldClose.get()) return@addOnSuccessListener
+                    val candidate = runCatching {
+                        findDateOcrCandidate(
+                            visionText = visionText,
+                            field = field,
+                            imageWidth = imageWidth,
+                            imageHeight = imageHeight,
+                        )
+                    }.getOrNull()
+                    onCandidateDetected(candidate)
+                }
+                .addOnFailureListener(mainExecutor) {
+                    if (!shouldClose.get()) onCandidateDetected(null)
+                }
+                .addOnCompleteListener {
+                    isProcessing.set(false)
+                    imageProxy.close()
+                    closeRecognizerIfReady()
+                }
+        }.onFailure {
+            isProcessing.set(false)
+            imageProxy.close()
+            closeRecognizerIfReady()
+        }
     }
 
     fun close() {
-        recognizer.close()
+        shouldClose.set(true)
+        closeRecognizerIfReady()
+    }
+
+    private fun closeRecognizerIfReady() {
+        if (shouldClose.get() && !isProcessing.get() && isClosed.compareAndSet(false, true)) {
+            recognizer?.close()
+        }
     }
 }
 
@@ -564,11 +620,12 @@ private fun findDateOcrCandidate(
     imageWidth: Int,
     imageHeight: Int,
 ): DateOcrCandidate? {
-    val value = field.extractValue(visionText.text) ?: return null
-    val block = visionText.textBlocks.firstOrNull { field.extractValue(it.text) == value }
-        ?: visionText.textBlocks.firstOrNull()
+    val textBlocks = visionText.textBlocks.orEmpty()
+    val value = field.extractValue(visionText.text.orEmpty()) ?: return null
+    val block = textBlocks.firstOrNull { field.extractValue(it.text.orEmpty()) == value }
+        ?: textBlocks.firstOrNull()
         ?: return null
-    val line = block.lines.firstOrNull { field.extractValue(it.text) == value }
+    val line = block.lines.orEmpty().firstOrNull { field.extractValue(it.text.orEmpty()) == value }
     val box = line?.boundingBox ?: block.boundingBox ?: return null
 
     return DateOcrCandidate(

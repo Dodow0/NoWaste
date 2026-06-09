@@ -57,9 +57,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+import com.google.mlkit.vision.text.Text as VisionText
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -153,7 +152,7 @@ private fun TextPickerCameraPreview(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
-    val recognizer = remember { TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build()) }
+    val recognizer = remember { createSafeTextRecognizer() }
     val executor = remember { Executors.newSingleThreadExecutor() }
     val imageSize = remember { AtomicReference<Size?>(null) }
     val isProcessing = remember { AtomicBoolean(false) }
@@ -173,45 +172,54 @@ private fun TextPickerCameraPreview(
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener(
             {
-                val cameraProvider = cameraProviderFuture.get()
-                if (disposed) {
-                    cameraProvider.unbindAll()
+                val textRecognizer = recognizer ?: return@addListener
+                val cameraProvider = runCatching { cameraProviderFuture.get() }.getOrElse {
                     return@addListener
                 }
-                cameraProviderReference.set(cameraProvider)
-                val preview = Preview.Builder().build().also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
+                if (disposed) {
+                    runCatching { cameraProvider.unbindAll() }
+                    return@addListener
                 }
-                val imageAnalysis = ImageAnalysis.Builder()
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
-                    .also {
-                        it.setAnalyzer(
-                            executor,
-                            TextBlockAnalyzer(
-                                recognizer = recognizer,
-                                mainExecutor = mainExecutor,
-                                imageSize = imageSize,
-                                isProcessing = isProcessing,
-                                onTextBlocks = { blocks ->
-                                    if (!isTextLocked) {
-                                        textBlocks = blocks
-                                        if (blocks.isNotEmpty()) {
-                                            isTextLocked = true
-                                        }
-                                    }
-                                },
-                            ),
-                        )
-                    }
 
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    preview,
-                    imageAnalysis,
-                )
+                runCatching {
+                    cameraProviderReference.set(cameraProvider)
+                    val preview = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+                    val imageAnalysis = ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+                        .also {
+                            it.setAnalyzer(
+                                executor,
+                                TextBlockAnalyzer(
+                                    recognizer = textRecognizer,
+                                    mainExecutor = mainExecutor,
+                                    imageSize = imageSize,
+                                    isProcessing = isProcessing,
+                                    onTextBlocks = { blocks ->
+                                        if (!isTextLocked) {
+                                            textBlocks = blocks
+                                            if (blocks.isNotEmpty()) {
+                                                isTextLocked = true
+                                            }
+                                        }
+                                    },
+                                ),
+                            )
+                        }
+
+                    cameraProvider.unbindAll()
+                    cameraProvider.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.DEFAULT_BACK_CAMERA,
+                        preview,
+                        imageAnalysis,
+                    )
+                }.onFailure {
+                    cameraProviderReference.set(null)
+                    runCatching { cameraProvider.unbindAll() }
+                }
             },
             ContextCompat.getMainExecutor(context),
         )
@@ -224,7 +232,7 @@ private fun TextPickerCameraPreview(
 
     DisposableEffect(Unit) {
         onDispose {
-            recognizer.close()
+            recognizer?.close()
             executor.shutdown()
         }
     }
@@ -261,7 +269,11 @@ private fun TextPickerCameraPreview(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    text = if (isTextLocked) "文字框已锁定，大字候选会优先选中" else "正在识别包装文字...",
+                    text = when {
+                        recognizer == null -> "文字识别初始化失败，请稍后重试"
+                        isTextLocked -> "文字框已锁定，大字候选会优先选中"
+                        else -> "正在识别包装文字..."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (isTextLocked) {
@@ -340,45 +352,65 @@ private class TextBlockAnalyzer(
                 if (isRotated) imageProxy.width else imageProxy.height,
             ),
         )
-        val image = InputImage.fromMediaImage(mediaImage, rotation)
-        recognizer.process(image)
-            .addOnSuccessListener { visionText ->
-                val blocks = visionText.textBlocks.flatMap { block ->
-                    val box = block.boundingBox ?: return@flatMap emptyList()
-                    val lines = block.lines.mapNotNull { line ->
-                        val lineBox = line.boundingBox ?: return@mapNotNull null
-                        line.text.trim().takeIf { it.isNotBlank() }?.let { text ->
-                            RecognizedTextBlock(
-                                text = text,
-                                boundingBox = lineBox,
-                                priorityScore = productNamePriorityScore(text, lineBox),
-                            )
-                        }
-                    }
-                    if (lines.isNotEmpty()) {
-                        lines
-                    } else {
-                        block.text.trim().takeIf { it.isNotBlank() }?.let { text ->
-                            listOf(
-                                RecognizedTextBlock(
-                                    text = text,
-                                    boundingBox = box,
-                                    priorityScore = productNamePriorityScore(text, box),
-                                ),
-                            )
-                        }.orEmpty()
-                    }
+        val image = runCatching {
+            InputImage.fromMediaImage(mediaImage, rotation)
+        }.getOrElse {
+            isProcessing.set(false)
+            imageProxy.close()
+            return
+        }
+        runCatching {
+            recognizer.process(image)
+                .addOnSuccessListener { visionText ->
+                    val blocks = runCatching {
+                        recognizedTextBlocks(visionText)
+                    }.getOrDefault(emptyList())
+                    mainExecutor.execute { onTextBlocks(blocks) }
                 }
-                    .distinctBy { it.text to it.boundingBox.flattenToString() }
-                    .sortedByDescending { it.priorityScore }
-                mainExecutor.execute { onTextBlocks(blocks) }
-            }
-            .addOnCompleteListener {
-                isProcessing.set(false)
-                imageProxy.close()
-            }
+                .addOnFailureListener {
+                    mainExecutor.execute { onTextBlocks(emptyList()) }
+                }
+                .addOnCompleteListener {
+                    isProcessing.set(false)
+                    imageProxy.close()
+                }
+        }.onFailure {
+            isProcessing.set(false)
+            imageProxy.close()
+        }
     }
 }
+
+private fun recognizedTextBlocks(visionText: VisionText): List<RecognizedTextBlock> =
+    visionText.textBlocks.orEmpty()
+        .flatMap { block ->
+            val box = block.boundingBox ?: return@flatMap emptyList()
+            val lines = block.lines.orEmpty().mapNotNull { line ->
+                val lineBox = line.boundingBox ?: return@mapNotNull null
+                line.text.orEmpty().trim().takeIf { it.isNotBlank() }?.let { text ->
+                    RecognizedTextBlock(
+                        text = text,
+                        boundingBox = lineBox,
+                        priorityScore = productNamePriorityScore(text, lineBox),
+                    )
+                }
+            }
+            if (lines.isNotEmpty()) {
+                lines
+            } else {
+                block.text.orEmpty().trim().takeIf { it.isNotBlank() }?.let { text ->
+                    listOf(
+                        RecognizedTextBlock(
+                            text = text,
+                            boundingBox = box,
+                            priorityScore = productNamePriorityScore(text, box),
+                        ),
+                    )
+                }.orEmpty()
+            }
+        }
+        .distinctBy { it.text to it.boundingBox.flattenToString() }
+        .sortedByDescending { it.priorityScore }
 
 private fun productNamePriorityScore(text: String, box: Rect): Float {
     val cleanText = text.trim()
